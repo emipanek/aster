@@ -36,6 +36,7 @@ api_testing/
 # Workspace and temporary files
 workspace/
 downloaded_spectra/
+app/
 
 # Output files - plots and data
 *.png

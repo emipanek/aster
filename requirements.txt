@@ -4,3 +4,4 @@ taurex
 astropy
 orchestral-ai
 corner-2.2.3
+pymultinest

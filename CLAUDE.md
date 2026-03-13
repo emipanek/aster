@@ -6,6 +6,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ASTER (Agentic Science Toolkit for Exoplanet Research) is a refactored agentic system for exoplanet atmospheric research using TauREx spectral modeling. The system uses the `orchestral-ai` package to provide AI agents with tools for downloading exoplanet data, running forward models, and performing atmospheric retrievals.
 
+## Skills System
+
+ASTER includes specialized skill files in `workspace/skills/` that contain detailed knowledge about specific tasks:
+
+- **taurex_setup.md**: TauREx configuration, line list downloads, path setup, and troubleshooting
+- **corner_plots.md**: How to create publication-quality corner plots from retrieval results
+
+**Important**: These skill files are NOT loaded into the system prompt. When you need information about these topics, use the ReadFileTool to read the relevant skill file from `workspace/skills/`.
+
 ## Environment Setup
 
 This project uses a Python virtual environment located at `aster-env/`:
@@ -82,17 +91,21 @@ Key parameters:
 - Physical: `planet_radius` (RJup), `planet_mass` (MJup), `star_radius` (Rsun)
 - Orbital: `orbital_period` (days), `semi_major_axis` (AU)
 - Atmospheric: `planet_temp` (K), `atm_min_pressure`/`atm_max_pressure` (bar)
+- Chemistry: `molecular_abundances` (optional dict, e.g., `{'H2O': 0.02, 'CH4': 0.001}`)
 - Output: `filename` (saves as `{filename}_spectrum.png`)
 
 The tool uses:
 - Isothermal temperature profile
 - TaurexChemistry with H2/He background (ratio 0.17)
-- Fixed molecular abundances: H2O (0.02), CH4 (0.001), CO2 (0.0001), CO (0.001), NH3 (0.0001)
+- Default molecular abundances (if not specified): H2O (0.02), CH4 (0.001), CO2 (0.0001), CO (0.001), NH3 (0.0001)
+- Custom abundances can be specified via `molecular_abundances` parameter
 - Absorption, Rayleigh, and CIA contributions
 
 Output files in `workspace/`:
 - `{filename}_spectrum.png` - Plot
 - `fm_wavelength.npy`, `fm_spectrum.npy` - Raw data
+
+**Important**: The forward model outputs spectra at full line-list resolution (~100k points). For visualization purposes, these should be binned to observational resolution. Unbinned spectra are too noisy to display meaningfully. Use numpy to bin wavelength and spectrum arrays before custom plotting.
 
 ### Atmospheric Retrieval
 
@@ -128,12 +141,15 @@ The `exoarchive.py` module provides access to NASA Exoplanet Archive data:
 - `GetExoplanetParameters` - TAP queries for planet/star parameters from pscomppars table
   - Parameters: `planet_name`, `columns` (list of parameter names), `table` (default: "pscomppars")
   - Returns: Dictionary with requested parameters
-  - **Important**: Users must cite the archive DOI if using data for research
 
 - `DownloadDataset` - Download and process spectra from NASA archive
-  - Requires: wgets file from Firefly interface (https://exoplanetarchive.ipac.caltech.edu/cgi-bin/atmospheres/nph-firefly)
-  - Parameters: `wgets_file_path`, `raw_data_path`, `processed_data_path`
+  - **Three input methods** (provide only ONE):
+    1. `wgets_file_path` - Path to file containing wget commands (user created)
+    2. `wget_text` - Raw wget commands pasted directly into chat
+    3. `wget_url` - URL to Firefly wget page (tool scrapes commands automatically) ⭐ EASIEST
+  - Other parameters: `raw_data_path`, `processed_data_path`
   - Output: spectrum.dat files in `workspace/tmp/processed_data/PLANET_NAME_3/DATASET_ID/`
+  - Firefly interface: https://exoplanetarchive.ipac.caltech.edu/cgi-bin/atmospheres/nph-firefly
 
 **Key Functions** (for advanced use):
 - `get_exoplanet_params_tap()` - Direct TAP query function
@@ -159,17 +175,36 @@ Spectra are stored in `workspace/tmp/processed_data/PLANET_NAME_3/DATASET_ID/spe
 4. Call `simulate_taurex_retrieval()` with appropriate optimizer
 5. Review outputs: fit plot, corner plot, and posterior samples
 
+### Downloading Spectra
+
+The `DownloadDataset` tool supports three input methods:
+
+**Method 1: User provides URL (easiest)**
+```
+User: "Download spectra from https://exoplanetarchive.ipac.caltech.edu/staging/..."
+Agent: DownloadDataset(wget_url="https://...")
+```
+
+**Method 2: User pastes wget text**
+```
+User: "Here are the wget commands: wget -O WASP_39_b.tbl '...'"
+Agent: DownloadDataset(wget_text="wget -O WASP_39_b.tbl '...'")
+```
+
+**Method 3: User saves to file**
+```
+User: "I saved the wget commands to wgets.txt"
+Agent: DownloadDataset(wgets_file_path="wgets.txt")
+```
+
 ### Querying Exoplanet Data
 
-Use functions in `exoarchive.py` for programmatic access to archive data:
+Use `GetExoplanetParameters` tool for programmatic access to archive data:
 ```python
-from aster_toolkit.data_acquisition.exoarchive import get_spectra_index
-
-# Get all JWST transmission spectra for a planet
-spectra = get_spectra_index(
-    planet="WASP-39 b",
-    spec_type="Transmission",
-    facility="JWST"
+# Get planet parameters
+GetExoplanetParameters(
+    planet_name="WASP-39 b",
+    columns=["pl_radj", "pl_bmassj", "st_rad", "st_teff"]
 )
 ```
 

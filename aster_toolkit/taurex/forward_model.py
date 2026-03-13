@@ -35,6 +35,10 @@ class RunTaurexModelTool(BaseTool):
     planet_temp: float = RuntimeField(description="Temperature of the planet in Kelvin", default=1500.0)
     atm_min_pressure: float | None = RuntimeField(description="Minimum atmospheric pressure in bar (pressure at the highest simulated layer)", default=1e-3)
     atm_max_pressure: float | None = RuntimeField(description="Maximum atmospheric pressure in bar (pressure at the lowest simulated layer)", default=1e5)
+    molecular_abundances: dict | None = RuntimeField(
+        description="Dictionary of molecule names to mixing ratios (e.g., {'H2O': 0.02, 'CH4': 0.001}). If not provided, uses default values.",
+        default=None
+    )
     filename: str = RuntimeField(description="The output file will be saved as '{filename}_spectrum.png'", default='')
     base_directory: str = StateField()
 
@@ -48,6 +52,7 @@ class RunTaurexModelTool(BaseTool):
             planet_temp=self.planet_temp,
             atm_min_pressure=self.atm_min_pressure,
             atm_max_pressure=self.atm_max_pressure,
+            molecular_abundances=self.molecular_abundances,
             filename=self.filename,
             base_directory=self.base_directory
         )
@@ -64,6 +69,7 @@ def generate_taurex_model(
     planet_temp=1500.0,  # Kelvin
     atm_min_pressure=None,
     atm_max_pressure=None,
+    molecular_abundances=None,
     filename='default_planet',
     base_directory=''):
 
@@ -85,16 +91,21 @@ def generate_taurex_model(
     
     # Create chemistry with background gases
     chemistry_1 = TaurexChemistry(fill_gases=['H2', 'He'], ratio=[0.17])
-    
+
     # Add specific gas molecules
-    molecules = [
-        ('H2O', 0.02),
-        ('CH4', 0.001),
-        ('CO2', 0.0001),
-        ('CO', 0.001),
-        ('NH3', 0.0001)
-    ]
-    
+    if molecular_abundances is None:
+        # Default molecular abundances
+        molecules = [
+            ('H2O', 0.02),
+            ('CH4', 0.001),
+            ('CO2', 0.0001),
+            ('CO', 0.001),
+            ('NH3', 0.0001)
+        ]
+    else:
+        # Use user-provided molecular abundances
+        molecules = list(molecular_abundances.items())
+
     for molecule, mix_ratio in molecules:
         chemistry_1.addGas(ConstantGas(molecule, mix_ratio=mix_ratio))
 

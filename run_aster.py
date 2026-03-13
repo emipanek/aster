@@ -1,5 +1,4 @@
 import os
-import time
 
 from orchestral import Agent
 from orchestral.tools import (
@@ -52,7 +51,11 @@ tools = [
 
 hooks = [DangerousCommandHook()]
 
-system_prompt = f'{RICH_UI_SYSTEM_PROMPT}\n\nThe current date is {time.strftime("%Y-%m-%d")}'
+# Load ASTER system prompt
+with open('aster_system_prompt.md', 'r') as f:
+    aster_prompt = f.read()
+
+system_prompt = f'{RICH_UI_SYSTEM_PROMPT}\n\n{aster_prompt}'
 
 agent = Agent(
     llm=Claude(),

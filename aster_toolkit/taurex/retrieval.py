@@ -14,7 +14,6 @@ from taurex.optimizer.nestle import NestleOptimizer
 from taurex.optimizer.multinest import MultiNestOptimizer
 import os
 import sys
-import io
 from contextlib import redirect_stdout
 # import requests
 # from astropy.io import ascii
@@ -82,13 +81,13 @@ class SimulateTaurexRetrieval(BaseTool):
         default=100,
         description="Number of atmospheric layers to model. Standard value is 100."
     )
-    free_chem_full_molecules: list = RuntimeField(
+    free_chem_full_molecules: list | None = RuntimeField(
         default=None,
-        description="List of molecules with mixing ratios for 'free_chem_full' mode (e.g., [['H2O', 0.02], ['CH4', 0.001]]). Only used in 'free_chem_full' retrieval mode."
+        description="List of molecules with mixing ratios for 'full' mode (e.g., [['H2O', 0.02], ['CH4', 0.001]]). Only used in 'full' retrieval mode. If not specified in 'full' mode, uses default molecules."
     )
     retrieval_mode: str = RuntimeField(
-        default="free_chem_reduced",
-        description="Retrieval mode: 'free_chem_reduced', 'free_chem_full', or 'equilibrium_chem'."
+        default="reduced",
+        description="Retrieval mode: 'reduced' (fit 5 molecules: H2O, CH4, CO2, CO, NH3), 'full' (fit custom molecule list), or 'equilibrium' (fit metallicity and C/O ratio)."
     )
     output_basename: str = RuntimeField(
         default="retrieval_output",
@@ -338,19 +337,37 @@ def run_taurex_retrieval(
             stream(f"  - {p}: {bounds[p]}\n")
 
     # Run retrieval with stdout capture
-    stream(f"Starting {optimizer} retrieval (this may take several minutes)...\n")
+    stream(f"\nStarting {optimizer} retrieval...\n")
+    stream(f"This may take several minutes depending on the number of fit parameters.\n")
+    stream(f"Fitting {len(fit_params)} parameters: {', '.join(fit_params)}\n")
     stream("="*60 + "\n")
 
-    # Capture TauREx's stdout output
+    # Note: TauREx writes directly to stdout during nested sampling.
+    # We capture and relay it, but updates may be batched.
     if stream_callback:
-        stdout_capture = io.StringIO()
-        with redirect_stdout(stdout_capture):
-            solution = opt.fit()
+        # Create a custom stdout that streams line by line
+        class StreamingStdout:
+            def __init__(self, callback):
+                self.callback = callback
+                self.buffer = []
 
-        # Send captured output to stream
-        captured_output = stdout_capture.getvalue()
-        if captured_output:
-            stream(captured_output)
+            def write(self, text: str) -> int:
+                self.buffer.append(text)
+                # Send output periodically (when we see newlines)
+                if '\n' in text:
+                    self.callback(''.join(self.buffer))
+                    self.buffer = []
+                return len(text)
+
+            def flush(self):
+                if self.buffer:
+                    self.callback(''.join(self.buffer))
+                    self.buffer = []
+
+        streaming_out = StreamingStdout(stream)
+        with redirect_stdout(streaming_out):
+            solution = opt.fit()
+        streaming_out.flush()
     else:
         solution = opt.fit()
 
@@ -428,7 +445,8 @@ def run_taurex_retrieval(
     plt.title('TauREx Retrieval: Observed vs Best-fit Model')
     plt.legend()
     plt.tight_layout()
-    plt.savefig(fit_png, dpi=500)
+    plt.savefig(fit_png, dpi=200)
+    plt.close()
     stream(f"Saved fit plot to {fit_png}\n")
 
     np.save(wl_npy, model_wl)
@@ -461,11 +479,12 @@ def run_taurex_retrieval(
         labels=labels,
         quantiles=[0.16, 0.5, 0.84],
         show_titles=True,
-        title_fmt=".3g",
+        title_fmt=".4g",
+        bins=60
     )
-    plt.savefig(corner_png, dpi=500)
+    plt.savefig(corner_png, dpi=200)
+    plt.close()
     stream(f"Saved corner plot to {corner_png}\n")
-    # plt.show()
 
     stream("\nRetrieval complete!\n")
 

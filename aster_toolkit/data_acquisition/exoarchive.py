@@ -222,7 +222,9 @@ class GetExoplanetParameters(BaseTool):
         description="Name of the exoplanet (e.g., 'Kepler-10 b'), must match exactly with the archive."
     )
     columns: list = RuntimeField(
-        default=["pl_radj", "pl_bmassj", "pl_eqt", "st_rad", "st_teff", "st_mass"],
+        default=["pl_radj", "pl_bmassj", "pl_eqt"],
+        # Uncomment below to include orbital parameters for forward modeling:
+        # default=["pl_radj", "pl_bmassj", "pl_eqt", "pl_orbper", "pl_orbsmax"],
         description="""List of parameter columns to retrieve. Common columns include:
         - pl_name: Planet name
         - hostname: Stellar name
@@ -257,12 +259,46 @@ class GetExoplanetParameters(BaseTool):
         if result is None:
             return f"No data found for planet '{self.planet_name}' in table '{self.table}'"
 
+        # Parameter display mapping (column_name -> (label, unit))
+        param_labels = {
+            # Planet parameters
+            'pl_name': ('Planet Name', ''),
+            'pl_radj': ('Planet Radius', 'RJup'),
+            'pl_rade': ('Planet Radius', 'REarth'),
+            'pl_bmassj': ('Planet Mass', 'MJup'),
+            'pl_bmasse': ('Planet Mass', 'MEarth'),
+            'pl_eqt': ('Equilibrium Temp', 'K'),
+            'pl_orbper': ('Orbital Period', 'days'),
+            'pl_orbsmax': ('Semi-major Axis', 'AU'),
+
+            # Stellar parameters
+            'hostname': ('Star Name', ''),
+            'st_rad': ('Star Radius', 'Rsun'),
+            'st_teff': ('Star Temp', 'K'),
+            'st_mass': ('Star Mass', 'Msun'),
+            'st_met': ('Stellar Metallicity', 'dex'),
+            'st_logg': ('Stellar log(g)', 'log10(cm/s^2)'),
+        }
+
         # Format output
         output = f"Parameters for {self.planet_name}:\n\n"
         for param, value in result.items():
-            output += f"  {param}: {value}\n"
+            if param in param_labels:
+                label, unit = param_labels[param]
+                # Format numeric values with 5 significant figures
+                try:
+                    numeric_value = float(value)
+                    formatted_value = f"{numeric_value:.5g}"
+                except (ValueError, TypeError):
+                    formatted_value = value
 
-        output += "\n⚠️ CITATION REQUIRED: If using this data for research, cite the NASA Exoplanet Archive DOI."
+                if unit:
+                    output += f"  {label}: {formatted_value} {unit}\n"
+                else:
+                    output += f"  {label}: {formatted_value}\n"
+            else:
+                # Fallback for any column not in our mapping
+                output += f"  {param}: {value}\n"
 
         return output
 
@@ -271,20 +307,43 @@ class DownloadDataset(BaseTool):
     """
     Download transit spectra from NASA Exoplanet Archive and reformat them.
 
-    This tool processes a wgets file containing URLs to exoplanet spectra, downloads the data,
-    and saves it in a structured format ready for retrieval analysis.
+    This tool supports THREE ways to provide wget commands:
 
-    To get the wgets file:
+    1. **File path** (wgets_file_path): User saves wget commands to a file, agent reads it
+       - User creates 'wgets.txt' in workspace
+       - Agent calls: DownloadDataset(wgets_file_path='wgets.txt')
+
+    2. **Direct text** (wget_text): User pastes wget commands directly into chat
+       - User: "Here are my wget commands: [pastes text]"
+       - Agent calls: DownloadDataset(wget_text="wget -O file.tbl 'http://...'")
+
+    3. **URL to wget page** (wget_url): User provides URL to Firefly wget page (EASIEST!)
+       - User pastes: https://exoplanetarchive.ipac.caltech.edu/staging/...
+       - Agent calls: DownloadDataset(wget_url="https://...")
+       - Tool automatically scrapes wget commands from the page
+
+    To generate wget commands:
     1. Go to https://exoplanetarchive.ipac.caltech.edu/cgi-bin/atmospheres/nph-firefly
     2. Filter by instrument and planet(s)
     3. Check boxes for desired spectra
     4. Click "Download all checked spectra"
-    5. Copy wget commands for .tbl files to a text file
+    5. Provide the URL, text, or save to file
     """
 
-    wgets_file_path: str = RuntimeField(
-        description="Path to the wgets text file containing URLs (relative to base_directory)"
+    # Only ONE of these three should be provided
+    wgets_file_path: str | None = RuntimeField(
+        default=None,
+        description="Path to existing wgets text file (relative to base_directory). Use if user saved wget commands to a file."
     )
+    wget_text: str | None = RuntimeField(
+        default=None,
+        description="Raw wget commands as text. Use when user pastes wget commands directly into chat."
+    )
+    wget_url: str | None = RuntimeField(
+        default=None,
+        description="URL to Firefly wget page. Tool will scrape wget commands from this URL automatically."
+    )
+
     raw_data_path: str = RuntimeField(
         default="tmp/raw_data",
         description="Directory to store intermediate CSV files (relative to base_directory)"
@@ -298,26 +357,85 @@ class DownloadDataset(BaseTool):
 
     def _run(self) -> str:
         """Download and process spectra from NASA archive."""
-        # Process wget file to download data
-        process_wgets_file(
-            base_directory=self.base_directory,
-            wgets_file_path=self.wgets_file_path,
-            data_path=self.raw_data_path
-        )
+        import tempfile
 
-        # Process downloads to extract spectral data
-        process_downloads(
-            base_directory=self.base_directory,
-            data_path=self.raw_data_path,
-            output_dir=self.processed_data_path
-        )
+        # Count how many input methods were provided
+        inputs_provided = sum([
+            self.wgets_file_path is not None,
+            self.wget_text is not None,
+            self.wget_url is not None
+        ])
 
-        return (
-            f"Download complete!\n\n"
-            f"Raw CSV data saved in: {self.raw_data_path}\n"
-            f"Processed spectra saved in: {self.processed_data_path}\n\n"
-            f"Each spectrum is in {self.processed_data_path}/PLANET_NAME/DATASET_ID/spectrum.dat"
-        )
+        if inputs_provided == 0:
+            return "Error: Please provide ONE of: wgets_file_path, wget_text, or wget_url"
+
+        if inputs_provided > 1:
+            return "Error: Please provide only ONE input method (file_path, text, or url)"
+
+        # Determine the wget file path
+        wget_file_to_use = None
+        temp_file_created = False
+
+        if self.wgets_file_path:
+            # Method 1: User provided file path
+            wget_file_to_use = self.wgets_file_path
+
+        elif self.wget_text:
+            # Method 2: User provided text directly - create temporary file
+            temp_file = tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False, dir=self.base_directory)
+            temp_file.write(self.wget_text)
+            temp_file.close()
+            wget_file_to_use = os.path.basename(temp_file.name)
+            temp_file_created = True
+
+        elif self.wget_url:
+            # Method 3: User provided URL - scrape and create temporary file
+            try:
+                response = requests.get(self.wget_url)
+                response.raise_for_status()
+                wget_commands = response.text
+
+                # Create temporary file with scraped content
+                temp_file = tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False, dir=self.base_directory)
+                temp_file.write(wget_commands)
+                temp_file.close()
+                wget_file_to_use = os.path.basename(temp_file.name)
+                temp_file_created = True
+
+            except requests.RequestException as e:
+                return f"Error fetching wget commands from URL: {e}"
+
+        try:
+            # Process wget file to download data
+            process_wgets_file(
+                base_directory=self.base_directory,
+                wgets_file_path=wget_file_to_use,
+                data_path=self.raw_data_path
+            )
+
+            # Process downloads to extract spectral data
+            process_downloads(
+                base_directory=self.base_directory,
+                data_path=self.raw_data_path,
+                output_dir=self.processed_data_path
+            )
+
+            result = (
+                f"Download complete!\n\n"
+                f"Raw CSV data saved in: {self.raw_data_path}\n"
+                f"Processed spectra saved in: {self.processed_data_path}\n\n"
+                f"Each spectrum is in {self.processed_data_path}/PLANET_NAME/DATASET_ID/spectrum.dat"
+            )
+
+        finally:
+            # Clean up temporary file if we created one
+            if temp_file_created and wget_file_to_use:
+                try:
+                    os.remove(os.path.join(self.base_directory, wget_file_to_use))
+                except:
+                    pass
+
+        return result
 
 
 if __name__ == "__main__":
