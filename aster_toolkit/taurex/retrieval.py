@@ -72,6 +72,10 @@ class SimulateTaurexRetrieval(BaseTool):
         default="nestle",
         description="Optimizer to use for retrieval ('nestle' or 'multinest'). Use 'multinest' for better sampling if not specified."
     )
+    num_live_points: int = RuntimeField(
+        default=50,
+        description="Number of live points for nested sampling. Lower values (10-25) are faster but less accurate. Higher values (50-100) are slower but more accurate. Default: 50 for production, use 10-25 for quick tests."
+    )
     star_radius: float = RuntimeField(
         default=1.0,
         description="Radius of the host star in Solar radii."
@@ -210,6 +214,7 @@ class SimulateTaurexRetrieval(BaseTool):
             fit_params=fit_params,
             bounds=bounds,
             optimizer=self.optimizer,
+            num_live_points=self.num_live_points,
             star_radius=self.star_radius,
             planet_radius=self.planet_radius,
             planet_mass=self.planet_mass,
@@ -244,6 +249,7 @@ def run_taurex_retrieval(
     fit_params,
     bounds,
     optimizer="nestle",
+    num_live_points=50,
     # to build a model
     star_radius=1.0,  # solar radii
     star_temp=5500.0,  # Kelvin
@@ -410,12 +416,13 @@ def run_taurex_retrieval(
         optimizer = "nestle"
 
     stream(f"Setting up {optimizer} optimizer...\n")
+    stream(f"Using {num_live_points} live points (lower = faster but less accurate)\n")
     if optimizer == "nestle":
-        opt = NestleOptimizer(num_live_points=50)
+        opt = NestleOptimizer(num_live_points=num_live_points)
 
     elif optimizer == "multinest":
         opt = MultiNestOptimizer(
-            num_live_points=50,
+            num_live_points=num_live_points,
             multi_nest_path="./multinest",
             search_multi_modes=True,
             resume=False,
