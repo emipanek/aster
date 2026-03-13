@@ -23,7 +23,17 @@ def process_wgets_file(base_directory, wgets_file_path: str, data_path: str) -> 
 
     for line in lines:
         line = line.strip()  # Remove leading/trailing whitespace and newline characters
-        _, _, file_name, url = line.split(' ')
+
+        # Skip empty lines, comments, and shebang
+        if not line or line.startswith('#') or line.startswith('//') or line.startswith('!'):
+            continue
+
+        # Parse wget command: wget -O filename URL
+        parts = line.split()
+        if len(parts) != 4 or parts[0] != 'wget' or parts[1] != '-O':
+            continue  # Skip malformed lines
+
+        _, _, file_name, url = parts
         planet_name = file_name.split('.')[0]
 
         if planet_name == 'spectra':
@@ -73,23 +83,30 @@ def process_downloads(base_directory, data_path: str, output_dir: str) -> None:
         central_wavelength = df.CENTRALWAVELNG.values
 
         # Check if this is transit or eclipse data
-        if 'PL_TRANDEP' in df.columns:
-            # Transit observation
-            transit_depth = df.PL_TRANDEP.values / 100  # Modulation fraction (not in percent)
-            transit_depth_error = df.PL_TRANDEPERR1.values / 100  # Error in modulation fraction
-            authors = df.PL_TRANDEP_AUTHORS.values[0]
-            url = df.PL_TRANDEP_URL.values[0]
-            observation_type = 'transit'
-        elif 'ESPECLIPDEP' in df.columns:
+        # Note: Some files may have both columns, so we check which has actual data
+        has_transit = 'PL_TRANDEP' in df.columns
+        has_eclipse = 'ESPECLIPDEP' in df.columns
+
+        if has_transit:
+            # Check if transit column has non-null values
+            transit_values = df.PL_TRANDEP.dropna()
+            if len(transit_values) > 0:
+                # Transit observation with actual data
+                transit_depth = df.PL_TRANDEP.values / 100  # Modulation fraction (not in percent)
+                transit_depth_error = df.PL_TRANDEPERR1.values / 100  # Error in modulation fraction
+                authors = df.PL_TRANDEP_AUTHORS.values[0]
+                url = df.PL_TRANDEP_URL.values[0]
+                observation_type = 'transit'
+            elif has_eclipse:
+                # Transit column exists but is empty, try eclipse
+                raise ValueError('This sample contains an Eclipse observation rather than a Transit observation. Please filter for only transit observations on the Exoplanet Archive website and re-download the data.')
+            else:
+                raise ValueError(f"Transit depth column exists but contains no data. Available columns: {df.columns.tolist()}")
+        elif has_eclipse:
             # Eclipse observation
-            raise ValueError('This sample contains an Eclipse observation rather than a Transit observation. Please filter for only transit observations on the Exoplanet Archive website and re-download the data. ')
-            # transit_depth = df.ESPECLIPDEP.values / 100  # Modulation fraction (not in percent)
-            # transit_depth_error = df.ESPECLIPDEPERR1.values / 100  # Error in modulation fraction
-            # authors = df.ESPECLIPDEP_AUTHORS.values[0] if 'ESPECLIPDEP_AUTHORS' in df.columns else 'Unknown'
-            # url = df.ESPECLIPDEP_URL.values[0] if 'ESPECLIPDEP_URL' in df.columns else 'Unknown'
-            # observation_type = 'eclipse'
+            raise ValueError('This sample contains an Eclipse observation rather than a Transit observation. Please filter for only transit observations on the Exoplanet Archive website and re-download the data.')
         else:
-            raise ValueError(f"Cannot find transit depth column in  dataframe. Available columns: {df.columns.tolist()}")
+            raise ValueError(f"Cannot find transit depth column in dataframe. Available columns: {df.columns.tolist()}")
 
         spec = np.column_stack([
                     central_wavelength,
@@ -322,6 +339,10 @@ class DownloadDataset(BaseTool):
        - Agent calls: DownloadDataset(wget_url="https://...")
        - Tool automatically scrapes wget commands from the page
 
+    Working files are stored in download_dataset_tool/queryNNN/ for debugging.
+    Final spectra are organized by planet name in the output_dir (default: spectra/).
+    Each download gets a unique query ID (query001, query002, etc.).
+
     To generate wget commands:
     1. Go to https://exoplanetarchive.ipac.caltech.edu/cgi-bin/atmospheres/nph-firefly
     2. Filter by instrument and planet(s)
@@ -344,13 +365,9 @@ class DownloadDataset(BaseTool):
         description="URL to Firefly wget page. Tool will scrape wget commands from this URL automatically."
     )
 
-    raw_data_path: str = RuntimeField(
-        default="tmp/raw_data",
-        description="Directory to store intermediate CSV files (relative to base_directory)"
-    )
-    processed_data_path: str = RuntimeField(
-        default="tmp/processed_data",
-        description="Directory where final spectrum.dat and metadata.json will be saved (relative to base_directory)"
+    output_dir: str = RuntimeField(
+        default="spectra",
+        description="Directory where final spectrum.dat files will be organized by planet name (e.g., spectra/WASP_39_b/dataset_id/spectrum.dat)"
     )
 
     base_directory: str = StateField()
@@ -358,6 +375,8 @@ class DownloadDataset(BaseTool):
     def _run(self) -> str:
         """Download and process spectra from NASA archive."""
         import tempfile
+        import shutil
+        from glob import glob
 
         # Count how many input methods were provided
         inputs_provided = sum([
@@ -371,6 +390,24 @@ class DownloadDataset(BaseTool):
 
         if inputs_provided > 1:
             return "Error: Please provide only ONE input method (file_path, text, or url)"
+
+        # Generate unique query ID
+        download_tool_dir = os.path.join(self.base_directory, 'download_dataset_tool')
+        os.makedirs(download_tool_dir, exist_ok=True)
+
+        # Find next available query number
+        existing_queries = glob(os.path.join(download_tool_dir, 'query*'))
+        query_nums = [int(os.path.basename(q).replace('query', '')) for q in existing_queries
+                      if os.path.basename(q).replace('query', '').isdigit()]
+        next_num = max(query_nums) + 1 if query_nums else 1
+        query_id = f"query{next_num:03d}"
+
+        # Create working directories
+        query_dir = os.path.join(download_tool_dir, query_id)
+        raw_path = os.path.join(query_dir, 'raw')
+        processed_path = os.path.join(query_dir, 'processed')
+        os.makedirs(raw_path, exist_ok=True)
+        os.makedirs(processed_path, exist_ok=True)
 
         # Determine the wget file path
         wget_file_to_use = None
@@ -410,22 +447,54 @@ class DownloadDataset(BaseTool):
             process_wgets_file(
                 base_directory=self.base_directory,
                 wgets_file_path=wget_file_to_use,
-                data_path=self.raw_data_path
+                data_path=os.path.relpath(raw_path, self.base_directory)
             )
 
             # Process downloads to extract spectral data
             process_downloads(
                 base_directory=self.base_directory,
-                data_path=self.raw_data_path,
-                output_dir=self.processed_data_path
+                data_path=os.path.relpath(raw_path, self.base_directory),
+                output_dir=os.path.relpath(processed_path, self.base_directory)
             )
 
-            result = (
-                f"Download complete!\n\n"
-                f"Raw CSV data saved in: {self.raw_data_path}\n"
-                f"Processed spectra saved in: {self.processed_data_path}\n\n"
-                f"Each spectrum is in {self.processed_data_path}/PLANET_NAME/DATASET_ID/spectrum.dat"
-            )
+            # Copy final spectra to output directory organized by planet
+            final_output_dir = os.path.join(self.base_directory, self.output_dir)
+            planet_dirs = os.listdir(processed_path)
+            planets_processed = []
+
+            for planet_dir in planet_dirs:
+                planet_path = os.path.join(processed_path, planet_dir)
+                if os.path.isdir(planet_path):
+                    # Copy to final location
+                    dest_path = os.path.join(final_output_dir, planet_dir)
+                    os.makedirs(dest_path, exist_ok=True)
+
+                    # Copy all dataset subdirectories
+                    for dataset in os.listdir(planet_path):
+                        src_dataset = os.path.join(planet_path, dataset)
+                        dst_dataset = os.path.join(dest_path, dataset)
+                        if os.path.isdir(src_dataset):
+                            shutil.copytree(src_dataset, dst_dataset, dirs_exist_ok=True)
+
+                    planets_processed.append(planet_dir)
+
+            # Build response message with detailed spectrum file paths
+            result = f"Download complete! Query ID: {query_id}\n\n"
+            result += f"Planets processed: {', '.join(planets_processed)}\n\n"
+            result += f"Working files: download_dataset_tool/{query_id}/\n"
+            result += f"Final spectra saved to: {self.output_dir}/\n\n"
+            result += "Spectrum file paths:\n"
+            for planet in planets_processed:
+                planet_spectra_dir = os.path.join(final_output_dir, planet)
+                # List all spectrum.dat files in dataset subdirectories
+                if os.path.isdir(planet_spectra_dir):
+                    for dataset in os.listdir(planet_spectra_dir):
+                        dataset_path = os.path.join(planet_spectra_dir, dataset)
+                        spectrum_file = os.path.join(dataset_path, 'spectrum.dat')
+                        if os.path.isfile(spectrum_file):
+                            # Show relative path from base_directory
+                            rel_spectrum_path = os.path.relpath(spectrum_file, self.base_directory)
+                            result += f"  - {rel_spectrum_path}\n"
 
         finally:
             # Clean up temporary file if we created one

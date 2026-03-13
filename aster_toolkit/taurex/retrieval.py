@@ -23,29 +23,48 @@ import pandas as pd
 # import json
 from tqdm import tqdm
 import corner
+import ast
 
 from orchestral.tools.base.tool import BaseTool
 from orchestral.tools.base.field_utils import RuntimeField, StateField
 
 class SimulateTaurexRetrieval(BaseTool):
     """
-    Run a Taurex retrieval on the given observed spectrum. The agent can either use the observation downloaded previously OR ask the user for a path to their own observation file.
+    Run a TauREx atmospheric retrieval to fit model parameters to an observed transmission spectrum.
 
-    If the agent used the download tool earlier, the observation_path should be something like: 'tmp/processed_data/PLANET_NAME/DATASET/spectrum.dat', where PLANET_NAME is the name of the planet you downloaded the data for, with a _ between every element and a 3 at the end, for example 'WASP-19_b_3'. The DATASET is the name of the dataset you downloaded, just go inside the first directory and take the spectrum.dat file from there.
+    **BEFORE using this tool, you MUST**:
+    1. Read the skill file: ReadFileTool(file_path="skills/retrieval_best_practices.md")
+    2. Set TauREx paths with SetTaurexPaths (using ls/pwd to get correct paths)
+    3. Have observation data ready (from DownloadDataset or user-provided)
 
-    The observation file should be three column file (with a fourth one optional), first wavelength in [microns], second transit depth, third error on transit depth and optional fourth column for the wavelength bin size.
-    The agent MUST ensure that the opacity and CIA paths are set correctly before running this tool, by using the check_taurex_opacity_cia_paths tool.
+    **REQUIRED PARAMETER**: observation_path
+    - Use the exact path from DownloadDataset output (e.g., 'spectra/WASP_39_b_3/WASP_39_b_3.11466_5502_2/spectrum.dat')
+    - Or ask user for their file path
+
+    **IMPORTANT - Optimizer Selection**:
+    - Use optimizer="nestle" (recommended, always works, pure Python)
+    - Do NOT use optimizer="multinest" unless confirmed it's installed (requires compiled Fortran libraries)
+    - Read skills/retrieval_best_practices.md for detailed guidance
+
+    **Observation file format**: 3-4 column text file:
+    - Column 1: wavelength in microns
+    - Column 2: transit depth (dimensionless, e.g., 0.02 for 2%)
+    - Column 3: error on transit depth
+    - Column 4 (optional): wavelength bin width
     """
 
     # Required parameters
-    observation_path: str = RuntimeField(
-        description="Path to the observed spectrum file (relative to base_directory)."
+    observation_path: str | None = RuntimeField(
+        default=None,
+        description="Path to the observed spectrum file (relative to base_directory). REQUIRED - you must provide this path."
     )
-    fit_params: list = RuntimeField(
-        description="List of parameters to fit during retrieval. Minimum is ['planet_radius', 'T'] but should also include chemical parameters depending on retrieval mode."
+    fit_params: list | str | None = RuntimeField(
+        default=None,
+        description="List of parameters to fit during retrieval. Can be a Python list or a string representation of a list. Example: ['planet_radius', 'T', 'H2O', 'CH4', 'CO2', 'CO', 'NH3'] or \"['planet_radius', 'T', 'H2O', 'CH4']\". REQUIRED - you must provide fit parameters."
     )
-    bounds: dict = RuntimeField(
-        description="Dictionary specifying bounds for each fit parameter with [low, high] (e.g., {'planet_radius': [0.5, 2.0], 'T': [1000, 2000]}). For molecular abundances, use [1e-9, 1e-2]."
+    bounds: dict | str | None = RuntimeField(
+        default=None,
+        description="Dictionary specifying bounds for each fit parameter with [low, high]. Can be a Python dict or string representation. Example: {'planet_radius': [0.5, 2.0], 'T': [1000, 2000], 'H2O': [1e-9, 1e-2]} or \"{'planet_radius': [0.5, 2.0], 'T': [1000, 2000]}\". If not provided, reasonable defaults will be used based on fit_params."
     )
 
     # Optional parameters with defaults
@@ -97,19 +116,99 @@ class SimulateTaurexRetrieval(BaseTool):
     # State field - agent doesn't see this
     base_directory: str = StateField()
 
+    def _generate_default_bounds(self, fit_params: list) -> dict:
+        """
+        Generate reasonable default bounds for fit parameters.
+
+        Args:
+            fit_params: List of parameter names to fit
+
+        Returns:
+            Dictionary of bounds for each parameter
+        """
+        default_bounds = {
+            # Physical parameters
+            'planet_radius': [0.5, 2.5],      # Jupiter radii
+            'planet_mass': [0.1, 5.0],        # Jupiter masses
+            'T': [500, 3000],                  # Temperature in Kelvin
+            'star_radius': [0.5, 2.0],        # Solar radii
+
+            # Molecular abundances (log-space)
+            'H2O': [1e-9, 1e-2],
+            'CH4': [1e-9, 1e-2],
+            'CO2': [1e-9, 1e-2],
+            'CO': [1e-9, 1e-2],
+            'NH3': [1e-9, 1e-2],
+            'N2': [1e-9, 1e-2],
+            'O2': [1e-9, 1e-2],
+            'HCN': [1e-9, 1e-2],
+            'H2S': [1e-9, 1e-2],
+
+            # Equilibrium chemistry parameters
+            'metallicity': [0.1, 10.0],       # Solar metallicity
+            'c_o_ratio': [0.1, 2.0],          # C/O ratio
+        }
+
+        # Build bounds dict for requested parameters
+        bounds = {}
+        for param in fit_params:
+            if param in default_bounds:
+                bounds[param] = default_bounds[param]
+            else:
+                raise ValueError(f"Unknown parameter '{param}' - cannot generate default bounds. Please provide bounds manually.")
+
+        return bounds
+
     def _run(self) -> str:
         """Execute the TauREx retrieval with streaming support."""
         # Get streaming callback if available
         stream_callback = getattr(self, '_stream_callback', None)
 
+        # Validate observation_path is provided
+        if self.observation_path is None or self.observation_path == "":
+            raise ValueError(
+                "observation_path is required but was not provided. "
+                "Please provide the path to your observed spectrum file. "
+                "If you used DownloadDataset earlier, use the path from the 'Spectrum file paths:' section of that output."
+            )
+
+        # Validate fit_params is provided
+        if self.fit_params is None:
+            raise ValueError(
+                "fit_params is required but was not provided. "
+                "Please provide a list of parameters to fit. "
+                "Example: fit_params=['planet_radius', 'T', 'H2O', 'CH4', 'CO2', 'CO', 'NH3']"
+            )
+
         # Resolve observation path relative to base_directory
         full_observation_path = os.path.join(self.base_directory, self.observation_path)
+
+        # Parse fit_params if it's a string
+        if isinstance(self.fit_params, str):
+            try:
+                fit_params = ast.literal_eval(self.fit_params)
+            except (ValueError, SyntaxError) as e:
+                raise ValueError(f"Failed to parse fit_params string: {self.fit_params}. Error: {e}")
+        else:
+            fit_params = self.fit_params
+
+        # Parse bounds if it's a string
+        if isinstance(self.bounds, str):
+            try:
+                bounds = ast.literal_eval(self.bounds)
+            except (ValueError, SyntaxError) as e:
+                raise ValueError(f"Failed to parse bounds string: {self.bounds}. Error: {e}")
+        elif self.bounds is None:
+            # Auto-generate default bounds based on fit_params
+            bounds = self._generate_default_bounds(fit_params)
+        else:
+            bounds = self.bounds
 
         # Call the retrieval function with all parameters
         result = run_taurex_retrieval(
             observation_path=full_observation_path,
-            fit_params=self.fit_params,
-            bounds=self.bounds,
+            fit_params=fit_params,
+            bounds=bounds,
             optimizer=self.optimizer,
             star_radius=self.star_radius,
             planet_radius=self.planet_radius,
@@ -345,26 +444,66 @@ def run_taurex_retrieval(
     # Note: TauREx writes directly to stdout during nested sampling.
     # We capture and relay it, but updates may be batched.
     if stream_callback:
-        # Create a custom stdout that streams line by line
+        # Create a custom stdout that streams with smart progress throttling
+        # CRITICAL: Must restore original stdout when calling callback to prevent recursion
         class StreamingStdout:
-            def __init__(self, callback):
+            def __init__(self, callback, original_stdout):
                 self.callback = callback
+                self.original_stdout = original_stdout
                 self.buffer = []
+                self.last_iteration = -1  # Track last reported iteration
+                self.update_frequency = 5  # Report every N iterations
 
             def write(self, text: str) -> int:
                 self.buffer.append(text)
-                # Send output periodically (when we see newlines)
+
+                # Send output when we see newlines
                 if '\n' in text:
-                    self.callback(''.join(self.buffer))
+                    msg = ''.join(self.buffer)
+
+                    # Check if this is a progress line (e.g., "it= 125 logz=...")
+                    # and throttle these updates
+                    should_send = True
+                    if 'it=' in msg and 'logz=' in msg:
+                        # Extract iteration number
+                        try:
+                            it_part = msg.split('it=')[1].split()[0]
+                            iteration = int(it_part)
+
+                            # Only send every Nth iteration
+                            if iteration - self.last_iteration < self.update_frequency:
+                                should_send = False
+                            else:
+                                self.last_iteration = iteration
+                        except (IndexError, ValueError):
+                            pass  # Failed to parse, send anyway
+
+                    if should_send:
+                        # Temporarily restore original stdout before calling callback
+                        current_stdout = sys.stdout
+                        sys.stdout = self.original_stdout
+                        try:
+                            self.callback(msg)
+                        finally:
+                            sys.stdout = current_stdout
+
                     self.buffer = []
                 return len(text)
 
             def flush(self):
                 if self.buffer:
-                    self.callback(''.join(self.buffer))
+                    # Temporarily restore original stdout before calling callback
+                    current_stdout = sys.stdout
+                    sys.stdout = self.original_stdout
+                    try:
+                        self.callback(''.join(self.buffer))
+                    finally:
+                        sys.stdout = current_stdout
                     self.buffer = []
 
-        streaming_out = StreamingStdout(stream)
+        # Pass stream_callback directly and save original stdout
+        original_stdout = sys.stdout
+        streaming_out = StreamingStdout(stream_callback, original_stdout)
         with redirect_stdout(streaming_out):
             solution = opt.fit()
         streaming_out.flush()

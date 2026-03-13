@@ -4,15 +4,29 @@ from taurex.cache import OpacityCache, CIACache
 @define_tool()
 def SetTaurexPaths(opacity_path: str, cia_path: str):
     """
-    Set the paths for Taurex opacity and CIA files.
+    Set the paths for TauREx opacity and CIA files.
+
+    **BEFORE using this tool, you MUST**:
+    1. Run `ls linelists/` to check if linelists exist (you should see xsec/ and cia/ directories)
+    2. Run `pwd` to get the absolute path to your current working directory
+    3. Construct paths: opacity_path = '<pwd>/linelists/xsec', cia_path = '<pwd>/linelists/cia'
+
+    **NEVER guess paths** like '/app/linelists' or '/home/user/workspace/linelists' - these are WRONG.
+    **NEVER use** 'linelists/opacity' - the opacity directory is called 'xsec', not 'opacity'.
 
     Parameters:
-    opacity_path (str): The path to the directory containing Taurex opacity files.
-    cia_path (str): The path to the directory containing Taurex CIA files.
+    opacity_path (str): ABSOLUTE path to linelists/xsec/ directory (e.g., '/Users/username/workspace/linelists/xsec')
+    cia_path (str): ABSOLUTE path to linelists/cia/ directory (e.g., '/Users/username/workspace/linelists/cia')
 
-    This tool will set the paths in the OpacityCache and CIACache, which are used by Taurex to locate these files.
-    These files are needed for the Taurex model to run successfully. They are usually in the linelists folder, if not ask the user to provide them.
-    Note: the paths must use the full absolute path to the directories containing the files, not just the parent directory. Use `pwd` if you don't know the full path.
+    Example workflow:
+    - Run: ls linelists/        → Output: cia  xsec
+    - Run: pwd                  → Output: /Users/username/research/workspace
+    - Then: SetTaurexPaths(
+        opacity_path='/Users/username/research/workspace/linelists/xsec',
+        cia_path='/Users/username/research/workspace/linelists/cia'
+    )
+
+    If linelists directory doesn't exist, ask the user to run the download_linelists.py script.
     """
 
     if opacity_path is not None:

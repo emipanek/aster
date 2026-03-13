@@ -34,7 +34,9 @@ env/
 api_testing/
 
 # Workspace and temporary files
-workspace/
+workspace/*
+!workspace/skills/
+!workspace/skills/**
 downloaded_spectra/
 app/
 
@@ -61,3 +63,6 @@ Thumbs.db
 
 # Logs
 *.log
+
+
+NOTE_TO_ORCHESTRAL_DEV.md

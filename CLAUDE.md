@@ -12,6 +12,7 @@ ASTER includes specialized skill files in `workspace/skills/` that contain detai
 
 - **taurex_setup.md**: TauREx configuration, line list downloads, path setup, and troubleshooting
 - **corner_plots.md**: How to create publication-quality corner plots from retrieval results
+- **retrieval_best_practices.md**: Parameter bounds guidance, optimizer selection, and retrieval strategies for different use cases
 
 **Important**: These skill files are NOT loaded into the system prompt. When you need information about these topics, use the ReadFileTool to read the relevant skill file from `workspace/skills/`.
 
@@ -75,11 +76,17 @@ TauREx requires opacity cross-sections and CIA (collision-induced absorption) fi
    This downloads molecular cross-sections (H2O, CO2, NH3, CH4, CO) to `workspace/linelists/xsec/` and CIA files (H2-H2, H2-He) to `workspace/linelists/cia/`
 
 2. **Set paths before running models**:
-   The agent must call `SetTaurexPaths` with absolute paths:
+   The agent must call `SetTaurexPaths` with absolute paths. The agent should:
+   - First run `pwd` to get the current working directory
+   - Then construct the full absolute paths to `linelists/xsec/` and `linelists/cia/`
+   - Never hardcode or guess paths (e.g., `/app/linelists` is wrong)
+
+   Example:
    ```python
+   # If pwd returns /Users/username/project/workspace
    SetTaurexPaths(
-       opacity_path='/full/path/to/workspace/linelists/xsec',
-       cia_path='/full/path/to/workspace/linelists/cia'
+       opacity_path='/Users/username/project/workspace/linelists/xsec',
+       cia_path='/Users/username/project/workspace/linelists/cia'
    )
    ```
 
@@ -117,15 +124,17 @@ Output files in `workspace/`:
 - `"full"` - Fits custom list of molecules specified by user
 
 **Key Parameters**:
-- `observation_path` - Path to 3-4 column spectrum file (wavelength μm, depth, error, [bin width])
-- `fit_params` - Parameters to fit (minimum: `['planet_radius', 'T']` + chemistry params)
-- `bounds` - Dict of `{param: [low, high]}` bounds
-- `optimizer` - `"multinest"` (preferred) or `"nestle"`
+- `observation_path` - **REQUIRED**. Path to 3-4 column spectrum file (wavelength μm, depth, error, [bin width]). Use exact path from DownloadDataset output or user-provided file.
+- `fit_params` - Parameters to fit (minimum: `['planet_radius', 'T']` + chemistry params). Can be passed as a list or string representation.
+- `bounds` - Dict of `{param: [low, high]}` bounds. Can be passed as a dict or string representation. **Optional** - if not provided, reasonable defaults are auto-generated.
+- `optimizer` - `"nestle"` (recommended, always works) or `"multinest"` (faster but requires difficult installation)
 
 **Important Notes**:
 - Pressure units in TauREx are **Pascals**, not bars (default range: 1e-3 to 1e5 Pa)
 - Molecular abundance bounds should be `[1e-9, 1e-2]`
 - Standard `nlayers=100` (only change if user requests)
+- **String parameters**: `fit_params`, `bounds`, and `molecular_abundances` accept both native Python objects and string representations (e.g., `"['H2O', 'CH4']"` or `['H2O', 'CH4']`). The tool will parse strings automatically.
+- **Auto-generated bounds**: If `bounds` is not provided, the tool generates sensible defaults: planet_radius [0.5, 2.5] RJup, T [500, 3000] K, molecules [1e-9, 1e-2], metallicity [0.1, 10.0], c_o_ratio [0.1, 2.0]
 
 **Outputs** (saved to `output_path` with `output_basename` prefix):
 - `*_fit.png` - Observed vs best-fit comparison
@@ -147,16 +156,18 @@ The `exoarchive.py` module provides access to NASA Exoplanet Archive data:
     1. `wgets_file_path` - Path to file containing wget commands (user created)
     2. `wget_text` - Raw wget commands pasted directly into chat
     3. `wget_url` - URL to Firefly wget page (tool scrapes commands automatically) ⭐ EASIEST
-  - Other parameters: `raw_data_path`, `processed_data_path`
-  - Output: spectrum.dat files in `workspace/tmp/processed_data/PLANET_NAME_3/DATASET_ID/`
+  - Parameters: `output_dir` (default: "spectra")
+  - **File organization**:
+    - Working files: `workspace/download_dataset_tool/query{NNN}/` (for debugging)
+    - Final spectra: `workspace/spectra/PLANET_NAME_3/DATASET_ID/spectrum.dat`
+    - Each download gets unique query ID (query001, query002, etc.)
+    - **Tool output shows full spectrum file paths** for use in retrievals
   - Firefly interface: https://exoplanetarchive.ipac.caltech.edu/cgi-bin/atmospheres/nph-firefly
 
 **Key Functions** (for advanced use):
 - `get_exoplanet_params_tap()` - Direct TAP query function
 - `process_wgets_file()` - Download IPAC tables from URLs
 - `process_downloads()` - Convert raw data to spectrum.dat format
-
-Spectra are stored in `workspace/tmp/processed_data/PLANET_NAME_3/DATASET_ID/spectrum.dat`
 
 ## Common Workflows
 
@@ -169,11 +180,14 @@ Spectra are stored in `workspace/tmp/processed_data/PLANET_NAME_3/DATASET_ID/spe
 
 ### Running a Retrieval
 
-1. Ensure line lists downloaded and paths set
-2. Obtain observed spectrum (via `exoarchive.py` or user-provided)
-3. Choose retrieval mode and configure fit parameters/bounds
-4. Call `simulate_taurex_retrieval()` with appropriate optimizer
-5. Review outputs: fit plot, corner plot, and posterior samples
+1. **Read the skill file**: Agent must use ReadFileTool to read `skills/retrieval_best_practices.md` first
+2. Ensure line lists downloaded and TauREx paths set (with `ls`/`pwd` to get absolute paths)
+3. Obtain observed spectrum (via `DownloadDataset` tool or user-provided)
+4. Choose retrieval mode and configure fit parameters/bounds (or use auto-generated defaults)
+5. Call `SimulateTaurexRetrieval` with `optimizer="nestle"` (default, always works)
+6. Review outputs: fit plot, corner plot, and posterior samples
+
+**Important**: The agent should read the skill file before running ANY retrieval to understand optimizer selection and parameter bounds.
 
 ### Downloading Spectra
 
@@ -234,6 +248,6 @@ When working with the agent system:
 
 - Always use **absolute paths** for TauREx opacity/CIA configuration
 - Pressure units in TauREx are **Pascals** (Pa), not bars
-- For retrieval, prefer `"multinest"` optimizer for better sampling quality
+- For retrieval, use `"nestle"` optimizer by default (multinest requires complex installation)
 - The `.env` file contains API keys for LLM backends - never commit this file
 - Planet names in archive queries use format like `"WASP-39 b"` (space, lowercase designation)

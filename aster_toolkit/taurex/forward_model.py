@@ -4,6 +4,7 @@ import pandas as pd
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 from astropy.io import ascii
+import ast
 
 from orchestral.tools.filesystem.filesystem_tools import BaseTool
 from orchestral.tools.base.field_utils import RuntimeField, StateField
@@ -35,14 +36,22 @@ class RunTaurexModelTool(BaseTool):
     planet_temp: float = RuntimeField(description="Temperature of the planet in Kelvin", default=1500.0)
     atm_min_pressure: float | None = RuntimeField(description="Minimum atmospheric pressure in bar (pressure at the highest simulated layer)", default=1e-3)
     atm_max_pressure: float | None = RuntimeField(description="Maximum atmospheric pressure in bar (pressure at the lowest simulated layer)", default=1e5)
-    molecular_abundances: dict | None = RuntimeField(
-        description="Dictionary of molecule names to mixing ratios (e.g., {'H2O': 0.02, 'CH4': 0.001}). If not provided, uses default values.",
+    molecular_abundances: dict | str | None = RuntimeField(
+        description="Dictionary of molecule names to mixing ratios. Can be a Python dict or string representation. Example: {'H2O': 0.02, 'CH4': 0.001} or \"{'H2O': 0.02, 'CH4': 0.001}\". If not provided, uses default values.",
         default=None
     )
     filename: str = RuntimeField(description="The output file will be saved as '{filename}_spectrum.png'", default='')
     base_directory: str = StateField()
 
     def _run(self):
+        # Parse molecular_abundances if it's a string
+        molecular_abundances = self.molecular_abundances
+        if isinstance(molecular_abundances, str):
+            try:
+                molecular_abundances = ast.literal_eval(molecular_abundances)
+            except (ValueError, SyntaxError) as e:
+                raise ValueError(f"Failed to parse molecular_abundances string: {molecular_abundances}. Error: {e}")
+
         generate_taurex_model(
             star_radius=self.star_radius,
             planet_radius=self.planet_radius,
@@ -52,7 +61,7 @@ class RunTaurexModelTool(BaseTool):
             planet_temp=self.planet_temp,
             atm_min_pressure=self.atm_min_pressure,
             atm_max_pressure=self.atm_max_pressure,
-            molecular_abundances=self.molecular_abundances,
+            molecular_abundances=molecular_abundances,
             filename=self.filename,
             base_directory=self.base_directory
         )

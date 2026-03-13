@@ -14,7 +14,8 @@ from orchestral.tools import (
 )
 from orchestral.tools.hooks import DangerousCommandHook
 from orchestral.prompts import RICH_UI_SYSTEM_PROMPT
-from orchestral.llm import Claude
+# from orchestral.llm import Claude
+from orchestral.llm import GPT
 
 from aster_toolkit import (
     RunTaurexModelTool,
@@ -58,7 +59,8 @@ with open('aster_system_prompt.md', 'r') as f:
 system_prompt = f'{RICH_UI_SYSTEM_PROMPT}\n\n{aster_prompt}'
 
 agent = Agent(
-    llm=Claude(),
+    # llm=Claude(),
+    llm=GPT(model="gpt-4.1-mini"),
     tools=tools,
     tool_hooks=hooks,
     system_prompt=system_prompt
