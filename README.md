@@ -1,6 +1,4 @@
-# ASTER - Refactored Version
-
-**Agentic Science Toolkit for Exoplanet Research**
+# ASTER - **Agentic Science Toolkit for Exoplanet Research**
 
 This is the refactored version of ASTER using the `orchestral-ai` package from PyPI.
 
@@ -15,7 +13,7 @@ This is the refactored version of ASTER using the `orchestral-ai` package from P
 ## Installation
 
 ```bash
-pip install orchestral-ai
+pip install -r requirements.txt
 ```
 
 ## Structure
