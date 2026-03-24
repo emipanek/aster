@@ -21,6 +21,7 @@ from aster_toolkit import (
     RunTaurexModelTool,
     SetTaurexPaths,
     SimulateTaurexRetrieval,
+    PlotCornerPosteriors,
     GetExoplanetParameters,
     DownloadDataset
 )
@@ -44,6 +45,7 @@ tools = [
     SetTaurexPaths,
     RunTaurexModelTool(base_directory=base_directory),
     SimulateTaurexRetrieval(base_directory=base_directory),
+    PlotCornerPosteriors(base_directory=base_directory),
 
     # Data acquisition tools
     GetExoplanetParameters(),
