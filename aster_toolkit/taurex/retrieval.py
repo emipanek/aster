@@ -233,7 +233,7 @@ class SimulateTaurexRetrieval(BaseTool):
         output = f"TauREx Retrieval Complete!\n\n"
         output += f"Best-fit parameters:\n"
         for param, value in zip(self.fit_params, result['best_parameters']):
-            output += f"  - {param}: {value:.6e}\n"
+            output += f"  - {param}: {value}\n"
         output += f"\nLog-likelihood: {result['best_value']}\n\n"
         output += f"Output files (in workspace):\n"
         for key, path in result['outputs'].items():
@@ -553,16 +553,16 @@ def run_taurex_retrieval(
             # param_data is a FitParamOutput object with attributes
             value = getattr(param_data, 'value', None)
             if value is not None:
-                stream(f"  - {param_name}: {value:.6e}\n")
+                stream(f"  - {param_name}: {value}\n")
             else:
                 stream(f"  - {param_name}: {param_data}\n")
     else:
         # Fallback: just print the array values with param names
         for param, value in zip(fit_params, best_map):
-            stream(f"  - {param}: {value:.6e}\n")
+            stream(f"  - {param}: {value}\n")
 
     if statistics is not None:
-        stream(f"Log-likelihood: {statistics:.2f}\n")
+        stream(f"Log-likelihood: {statistics}\n")
 
     fit_png = f"{output_basename}_fit.png"
     corner_png = f"{output_basename}_corner.png"
