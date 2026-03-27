@@ -3,5 +3,6 @@ tqdm
 taurex
 astropy
 orchestral-ai
-corner-2.2.3
+corner
 pymultinest
+taurex_ultranest
