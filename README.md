@@ -16,6 +16,7 @@ This is the refactored version of ASTER using the `orchestral-ai` package from P
 
 ```bash
 git clone https://github.com/emipanek/aster.git
+cd ./aster
 pip install -r requirements.txt
 ```
 You also need to configure a .env txt file with your API keys.
