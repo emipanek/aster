@@ -1,5 +1,8 @@
 # ASTER - **Agentic Science Toolkit for Exoplanet Research**
 
+<img width="434" height="363" alt="logo_no_background (1)" src="https://github.com/user-attachments/assets/0e6f11dd-0f08-4200-a8de-5823a97c7fdd" />
+
+
 This is the refactored version of ASTER using the `orchestral-ai` package from PyPI.
 
 ## Key Changes
