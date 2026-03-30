@@ -22,9 +22,7 @@ The bounds you set directly control:
 - **Upper limit**: `-1` or `-2` (i.e., 10⁻¹ or 10⁻²)
   - Total mixing ratios of all species must sum to ≤ 1.0
   - If atmosphere is H₂/He dominated (typical for gas giants), leave room for background gases
-  - TauREx default: 83% H₂ + 17% He fills remaining fraction
-  - **Use -2 (10⁻²) for H₂/He atmospheres** to ensure total doesn't exceed 1
-  - **Use -1 (10⁻¹) only if** you have few absorbers or non-H₂/He atmosphere
+  - **Use -1 (10⁻¹) at the very maximum** to ensure total doesn't exceed 1
 
 **Default bounds**: `[1e-9, 1e-2]` or in log₁₀ space: `[-9, -2]`
 
@@ -33,23 +31,20 @@ The bounds you set directly control:
 **For quick tests** (when you know approximate T):
 - Use tight bounds: `T_expected ± 500 K`
 - Example: If T ≈ 1500 K, use `[1000, 2000]`
+- **ALWAYS use bounds relative to the considered planet temperature**
 
 **For genuine exploration**:
-- Use wide physically plausible bounds: `[500, 3000]` K
-- Lower bound: ~500 K (cooler planets, condensation limits)
-- Upper bound: ~3000 K (ultra-hot Jupiters)
+- Use wide physically plausible bounds
+- Use: `T_expected ± 1000 K`
+- Example: If T ≈ 1500 K, use `[500, 2500]`
+- **ALWAYS use bounds relative to the considered planet temperature**
 
 ### Radius Bounds
 
 **Planet radius** (Jupiter radii):
-- Quick test: `R_expected ± 0.5` RJup
-- Full exploration: `[0.5, 2.5]` RJup
+- Always use: `R_expected ± 0.5` RJup
 - Consider: Radius changes with reference pressure and atmospheric scale height
-
-**Star radius** (Solar radii):
-- Usually well-constrained from stellar characterization
-- Tight bounds: `R_star ± 0.2` Rsun
-- Only fit if stellar parameters are uncertain
+- **ALWAYS use bounds relative to the radius of the considered planet**
 
 ### Equilibrium Chemistry Parameters
 
@@ -63,14 +58,14 @@ The bounds you set directly control:
 
 ## Optimizer Selection
 
-**IMPORTANT**: PyMultiNest requires compiled Fortran libraries that can be difficult to install. If you encounter `"No module named 'pymultinest'"` errors, use `nestle` instead, which works out-of-the-box.
+**IMPORTANT**: num_live_points should NEVER be less than 50, the recommended value is 100! If the user specifies less than 50, please print a warning message.
 
-### nestle (**RECOMMENDED FOR MOST USERS**)
+### nestle 
 - **Pros**: Pure Python, easy to install, reliable convergence, works out-of-the-box
 - **Cons**: Slower than multinest for complex retrievals
 - **Use for**: **All retrievals unless multinest is confirmed working**
 - **Installation**: Already included in ASTER dependencies
-- **Status**: **Default choice** - always available
+- **Status**: available
 
 ### multinest (Publication Standard)
 - **Pros**: State-of-the-art nested sampling, most widely used in exoplanet community, faster than nestle
@@ -81,9 +76,9 @@ The bounds you set directly control:
 
 ### ultranest
 - **Pros**: Faster than MultiNest, modern algorithm, pure Python
-- **Cons**: Less extensively tested in exoplanet literature, not currently in ASTER dependencies
+- **Cons**: Less extensively tested in exoplanet literature
 - **Use for**: When speed is important and you can install additional packages
-- **Status**: Gaining adoption but not yet standard
+- **Status**: available in ASTER dependencies
 
 ### polychord / dipolychord
 - **Pros**: Efficient for high-dimensional parameter spaces
@@ -91,7 +86,7 @@ The bounds you set directly control:
 - **Use for**: Very high-dimensional problems (>20 parameters)
 
 **Recommendation order**:
-1. **nestle** - **Use this by default** (always works)
+1. **nestle** - Use this is Multinest not installed, but can be really slow
 2. **multinest** - Only if you've confirmed it's installed and working
 3. **ultranest** - Only if you need speed and are willing to install extra packages
 
@@ -108,7 +103,7 @@ bounds = {
     'H2O': [1e-7, 1e-3],          # Narrower than default
     'CH4': [1e-8, 1e-4]
 }
-optimizer = 'nestle'  # Fast, easy
+optimizer = 'nestle'
 ```
 
 ### Full Science Retrieval
