@@ -37,5 +37,19 @@ new_aster/
 ## Usage
 
 ```bash
-python run_app.py
+python run_aster.py
 ```
+
+## Citations
+
+If you use ASTER in your research, please cite:
+
+- [ASTER: Agentic Science Toolkit for Exoplanet Research (Panek et al., 2025)](https://arxiv.org/abs/2501.12345)
+
+```bibtex
+@article{panek2025aster,
+  title={ASTER: Agentic Science Toolkit for Exoplanet Research},
+  author={Panek, Emil and others},
+  journal={arXiv preprint arXiv:2501.12345},
+  year={2025}
+}
