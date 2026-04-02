@@ -222,6 +222,195 @@ def get_exoplanet_params_tap(planet_name: str, columns: list | str, table: str =
     # Return results as a dictionary
     return {col: row[col] for col in columns}
 
+def find_exoplanets_by_condition(conditions: list[str] | str, return_columns: list[str] | str, table: str = "pscomppars", distinct: bool = True, limit: int | None = None,) -> list[dict]:
+    """
+    Query NASA Exoplanet Archive TAP service for planets using conditions on parameters.
+
+    Parameters:
+    - conditions: either a single WHERE condition string or a list of conditions
+                  e.g. "sy_pnum >= 2"
+                  or ["sy_pnum >= 2", "pl_bmasse > 5"]
+    - return_columns: columns to return
+    - table: TAP table name
+    - distinct: whether to return unique values only
+    - limit: optional row limit
+
+    Returns:
+    - List of dictionaries containing the requested columns for each matching row
+    """
+    # Make sure conditions is a list
+    if isinstance(conditions, str):
+        conditions = [conditions]
+
+    where_clause = " AND ".join(f"({c})" for c in conditions)
+
+    select_keyword = "SELECT DISTINCT" if distinct else "SELECT"
+    top_clause = f"TOP {limit} " if limit is not None else ""
+    if isinstance(return_columns, str):
+        return_columns = [return_columns]
+    
+    select_clause = ", ".join(return_columns)
+
+    adql = (
+        f"{select_keyword} {top_clause}{select_clause} "
+        f"FROM {table} "
+        f"WHERE {where_clause}"
+    )
+
+    # Send request
+    params = {
+        "query": adql,
+        "format": "csv"
+    }
+
+    response = requests.get(TAP_SYNC_URL, params=params)
+    response.raise_for_status()
+
+    # Parse CSV response
+    csv_file = io.StringIO(response.text)
+    reader = csv.DictReader(csv_file)
+
+    # this: row = next(reader, None) only grab the first matching planet, does not work here
+
+    # Return ALL requested columns per row
+    results = []
+    for row in reader:
+        results.append({col: row.get(col) for col in return_columns})
+
+    return results
+
+
+class FindExoplanetsByCondition(BaseTool):
+    """
+    Query the NASA Exoplanet Archive using the TAP (Table Access Protocol) service to retrieve exoplanets or planetary systems that satisfy user-defined conditions.
+
+    This tool enables flexible, condition-based searches over the Exoplanet Archive by allowing users to specify one or more constraints using ADQL (Astronomical Data Query Language) syntax. 
+
+    The query is constructed dynamically as:
+
+        SELECT [DISTINCT] <column_1>, <column_2>, ...
+        FROM <table>
+        WHERE <condition_1> AND <condition_2> AND ...
+
+    Key Features:
+    - Supports ADQL WHERE conditions
+    - Allows filtering on planetary system parameters
+    - Can return one or more valid columns, including planet names, host names, or physical parameters
+    - Supports optional deduplication via DISTINCT
+    - Supports limiting result size for performance
+
+    Parameters
+    ----------
+    conditions : list[str]
+        A list of ADQL-compatible conditional expressions used in the WHERE clause.
+        Each condition should be a valid SQL/ADQL boolean expression.
+
+        Examples:
+            ["sy_pnum >= 2"]
+            ["pl_eqt > 1000", "pl_bmassj > 0.5"]
+            ["st_teff BETWEEN 5000 AND 6000"]
+            ["discoverymethod = 'Transit'"]
+
+        Multiple conditions are combined using logical AND.
+
+    return_columns : list[str]
+        The columns whose values will be returned from the query.
+
+        Common options include:
+            - "pl_name"   : planet names
+            - "hostname"  : host star / system names
+            - any valid column in the selected table
+
+    table : str
+        The Exoplanet Archive table to query.
+            - "pscomppars" : composite parameters (recommended)
+            - "ps"         : full parameter sets
+
+    distinct : bool
+        If True, duplicate rows across the selected columns are removed using DISTINCT.
+        If False, all matching rows are returned (including duplicates).
+
+        Example:
+            - DISTINCT hostname → unique systems
+            - non-DISTINCT pl_name → all planets (including multiple per system)
+
+    limit : int | None
+        Maximum number of rows to return.
+
+        Useful for avoiding large downloads
+        If None, all matching rows are returned.
+
+    Returns
+    -------
+    str
+        A formatted string listing the matching rows and their requested column values.
+
+    Notes
+    -----
+    - This tool directly exposes ADQL condition strings; malformed queries may result in TAP service errors.
+    - String values in conditions must be quoted: "discoverymethod = 'Transit'"
+    - Numerical comparisons do not require quotes: "pl_eqt > 1000"
+
+    Example Queries
+    ---------------
+    - Systems with multiple planets:
+        conditions = ["sy_pnum >= 2"]
+        return_columns = ["hostname"]
+    
+    - Planets in multi-planet systems with semi-major axis:
+        conditions = ["sy_pnum >= 2"]
+        return_columns = ["pl_name", "pl_orbsmax"]
+    
+    - Hot Jupiter candidates (massive, hot planets):
+        conditions = ["pl_bmassj > 0.3", "pl_eqt > 1000"]
+        return_columns = ["pl_name", "pl_bmassj", "pl_eqt"]
+    
+    - Nearby planetary systems (within 50 pc):
+        conditions = ["sy_dist < 50"]
+        return_columns = ["hostname", "sy_dist"]
+
+    Important
+    ---------
+    Users should cite the NASA Exoplanet Archive if results are used for scientific research.
+    """
+
+    conditions: list = RuntimeField(
+        description="List of ADQL WHERE conditions, e.g. ['sy_pnum >= 2', 'pl_eqt > 1000']"
+    )
+    return_columns: list = RuntimeField(
+        description="Columns to return, e.g. ['pl_name', 'pl_orbsmax']"
+    )
+    table: str = RuntimeField(
+        default="pscomppars",
+        description="TAP table name: 'pscomppars' or 'ps'"
+    )
+    distinct: bool = RuntimeField(
+        default=True,
+        description="Whether to return unique values only"
+    )
+    limit: int | None = RuntimeField( 
+        description="Optional max number of rows to return"
+    )
+
+    def _run(self) -> str:
+        matches = find_exoplanets_by_condition(
+            conditions=self.conditions,
+            return_columns=self.return_columns,
+            table=self.table,
+            distinct=self.distinct,
+            limit=self.limit,
+        )
+
+        if not matches:
+            return "No matching results found."
+
+        output = "Matching results:\n\n"
+        for i, row in enumerate(matches, start=1):
+            line = ", ".join(f"{k}: {v}" for k, v in row.items())
+            output += f"{i}. {line}\n"
+
+        return output
+
 
 class GetExoplanetParameters(BaseTool):
     """

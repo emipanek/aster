@@ -7,7 +7,7 @@ from .taurex.forward_model import RunTaurexModelTool
 from .taurex.set_paths import SetTaurexPaths
 from .taurex.retrieval import SimulateTaurexRetrieval
 from .taurex.corner_plot import PlotCornerPosteriors
-from .data_acquisition.exoarchive import GetExoplanetParameters, DownloadDataset
+from .data_acquisition.exoarchive import GetExoplanetParameters, DownloadDataset, FindExoplanetsByCondition
 
 __all__ = [
     'RunTaurexModelTool',
@@ -16,6 +16,7 @@ __all__ = [
     'PlotCornerPosteriors',
     'GetExoplanetParameters',
     'DownloadDataset',
+    'FindExoplanetsByCondition',
 ]
 
 # from .taurex_tools import (
