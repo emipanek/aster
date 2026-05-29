@@ -23,8 +23,7 @@ The bounds you set directly control:
   - Total mixing ratios of all species must sum to ≤ 1.0
   - If atmosphere is H₂/He dominated (typical for gas giants), leave room for background gases
   - TauREx default: 83% H₂ + 17% He fills remaining fraction
-  - **Use -2 (10⁻²) for H₂/He atmospheres** to ensure total doesn't exceed 1
-  - **Use -1 (10⁻¹) only if** you have few absorbers or non-H₂/He atmosphere
+  - Generally use -1 (10⁻¹)
 
 **Default bounds**: `[1e-9, 1e-2]` or in log₁₀ space: `[-9, -2]`
 
