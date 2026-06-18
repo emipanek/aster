@@ -162,4 +162,4 @@ def generate_taurex_model(
     plt.tight_layout()
     plt.savefig(os.path.join(base_directory, f'{filename}_spectrum.png'))
     # print("Spectrum plot saved as transmission_spectrum.png")
-    return f"Successfully generated spectrum plot: {filename}_spectrum.png"
+    return f"Successfully generated spectrum plot: {filename}_spectrum.png and saved wavelengths as 'fm_wavelength.npy' and spectrum as 'fm_spectrum.npy'"
