@@ -64,6 +64,26 @@ If you encounter errors about missing opacity files:
 2. Verify paths are absolute (not relative)
 3. Ensure paths point to the directories containing the files, not parent directories
 
+## Forward Model Chemistry
+
+`RunTaurexModelTool` supports two chemistry modes via `chemistry_type` (default `'free'`):
+
+**`chemistry_type='free'`** (default) - fixed mixing ratios via `TaurexChemistry`, chosen by one of (only one path is used, in this order):
+1. `molecular_abundances` - exact mixing ratios given by the user, e.g. `{'H2O': 0.02, 'CH4': 0.001}`. Use only when the user specifies actual numbers.
+2. `molecules` - just a list of molecule names, e.g. `['H2O', 'CH4']`. Each molecule's abundance is looked up from the fixed `DEFAULT_MOLECULE_ABUNDANCES` table in `forward_model.py` (covers H2O, CH4, CO2, CO, NH3, HCN, H2S, SO2, C2H2, Na, K, TiO, VO). Use this when the user names specific molecules without giving ratios - never invent abundance numbers yourself, this keeps results deterministic/reproducible.
+3. If neither is given, the fixed **basic model** is used: H2O (0.02), CH4 (0.001), CO2 (0.0001), CO (0.001), NH3 (0.0001). Use this for a generic "basic model" request.
+
+**`chemistry_type='equilibrium'`** only set this if the user explicitly asks for equilibrium/ACE chemistry. Uses `ACEChemistry` from `acepython.taurex3` to compute abundances from thermochemical equilibrium via `metallicity` (default 1.0, solar) and `co_ratio` (default 0.54, solar). 
+
+## Forward Model Output Files
+
+Each run of `RunTaurexModelTool` with a given `filename` saves, in `workspace/`:
+- `{filename}_spectrum.png` - plot of the transmission spectrum
+- `{filename}_fm_wavelength.npy` - wavelength array (µm, full line-list resolution)
+- `{filename}_fm_spectrum.npy` - corresponding spectrum array
+
+**Important**: These arrays are at full line-list resolution (~100k points) - bin them to observational resolution with numpy before any custom plotting, since unbinned spectra are too noisy to display meaningfully.
+
 ## Common Issues
 
 - **"Opacity file not found"**: Paths not set or incorrect
