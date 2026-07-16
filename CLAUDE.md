@@ -96,21 +96,31 @@ TauREx requires opacity cross-sections and CIA (collision-induced absorption) fi
 
 Key parameters:
 - Physical: `planet_radius` (RJup), `planet_mass` (MJup), `star_radius` (Rsun)
-- Orbital: `orbital_period` (days), `semi_major_axis` (AU)
-- Atmospheric: `planet_temp` (K), `atm_min_pressure`/`atm_max_pressure` (bar)
-- Chemistry: `molecular_abundances` (optional dict, e.g., `{'H2O': 0.02, 'CH4': 0.001}`)
-- Output: `filename` (saves as `{filename}_spectrum.png`)
+- Atmospheric: `planet_temp` (K), `atm_min_pressure`/`atm_max_pressure` (Pascal)
+- Chemistry: `molecules` (optional list of names, e.g. `['H2O', 'CH4']`) or `molecular_abundances` (optional dict of exact ratios, e.g., `{'H2O': 0.02, 'CH4': 0.001}`), or `chemistry_type='equilibrium'` with `metallicity`/`co_ratio` for ACE thermochemical equilibrium
+- Output: `filename` (saves as `{filename}_spectrum.png`, `{filename}_fm_wavelength.npy`, `{filename}_fm_spectrum.npy`)
 
 The tool uses:
 - Isothermal temperature profile
-- TaurexChemistry with H2/He background (ratio 0.17)
-- Default molecular abundances (if not specified): H2O (0.02), CH4 (0.001), CO2 (0.0001), CO (0.001), NH3 (0.0001)
-- Custom abundances can be specified via `molecular_abundances` parameter
 - Absorption, Rayleigh, and CIA contributions
+
+Chemistry is controlled by `chemistry_type` (default `'free'`):
+
+**`chemistry_type='free'`** (default) - `TaurexChemistry` with H2/He background (ratio 0.17), gas mixing ratios set via one of (only one path is used, in this order):
+1. `molecular_abundances` - exact mixing ratios given by the user, e.g. `{'H2O': 0.02, 'CH4': 0.001}`. Use this only when the user specifies actual numbers.
+2. `molecules` - just a list of molecule names, e.g. `['H2O', 'CH4']`. Each molecule's abundance is looked up from the fixed `DEFAULT_MOLECULE_ABUNDANCES` table in `forward_model.py` (covers H2O, CH4, CO2, CO, NH3, HCN, H2S, SO2, C2H2, Na, K, TiO, VO). Use this when the user names specific molecules without giving ratios - never invent abundance numbers yourself, this keeps results deterministic/reproducible.
+3. If neither is given, the fixed **basic model** is used: H2O (0.02), CH4 (0.001), CO2 (0.0001), CO (0.001), NH3 (0.0001). Use this for a generic "basic model" request.
+
+**`chemistry_type='equilibrium'`** only set this if the user explicitly asks for equilibrium/ACE chemistry. Uses `ACEChemistry` from `acepython.taurex3` instead of `TaurexChemistry`, computing abundances from thermochemical equilibrium:
+```python
+from acepython.taurex3 import ACEChemistry
+chemistry = ACEChemistry(metallicity=metallicity, co_ratio=co_ratio)
+```
+`molecules`/`molecular_abundances` must not be set in this mode (the tool raises an error if they are) - fit chemistry here via `metallicity` (default 1.0, solar) and `co_ratio` (default 0.54, solar) instead.
 
 Output files in `workspace/`:
 - `{filename}_spectrum.png` - Plot
-- `fm_wavelength.npy`, `fm_spectrum.npy` - Raw data
+- `{filename}_fm_wavelength.npy`, `{filename}_fm_spectrum.npy` - Raw data
 
 **Important**: The forward model outputs spectra at full line-list resolution (~100k points). For visualization purposes, these should be binned to observational resolution. Unbinned spectra are too noisy to display meaningfully. Use numpy to bin wavelength and spectrum arrays before custom plotting.
 
@@ -130,7 +140,7 @@ Output files in `workspace/`:
 - `optimizer` - `"nestle"` (recommended, always works) or `"multinest"` (faster but requires difficult installation)
 
 **Important Notes**:
-- Pressure units in TauREx are **Pascals**, not bars (default range: 1e-3 to 1e5 Pa)
+- Pressure units in TauREx are **Pascals**, not bars (default range: 1e-1 to 1e6 Pa)
 - Molecular abundance bounds should be `[1e-9, 1e-2]`
 - Standard `nlayers=100` (only change if user requests)
 - **String parameters**: `fit_params`, `bounds`, and `molecular_abundances` accept both native Python objects and string representations (e.g., `"['H2O', 'CH4']"` or `['H2O', 'CH4']`). The tool will parse strings automatically.
