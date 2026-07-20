@@ -22,9 +22,9 @@ def process_wgets_file(base_directory, wgets_file_path: str, data_path: str) -> 
     manifest_url = None  # keep this in case needed it later
 
     for line in lines:
-        line = line.strip()  # Remove leading/trailing whitespace and newline characters
+        line = line.strip()  # Remove whitespace and newline characters
 
-        # Skip empty lines, comments, and shebang
+        # Skip empty lines, comments etc
         if not line or line.startswith('#') or line.startswith('//') or line.startswith('!'):
             continue
 
@@ -51,22 +51,33 @@ def process_wgets_file(base_directory, wgets_file_path: str, data_path: str) -> 
         print(f'{i:4} - {name:16}: With {len(names_to_urls[name])} file(s)')
 
     # Fetch and save planet data
+    failed_urls = []
     for planet_name, urls in names_to_urls.items():
         planet_dir = os.path.join(base_directory, data_path, planet_name)
         os.makedirs(planet_dir, exist_ok=True)
 
         for url in urls:
-            response = requests.get(url)
-            response.raise_for_status()
-
-            contents = response.text
-            tbl = ascii.read(contents, format="ipac")
-            df = tbl.to_pandas()      # type: ignore
-
             file_name = url.split('/')[-1]
-            file_path = os.path.join(planet_dir, file_name.replace('.tbl', '.csv'))
-            df.to_csv(file_path, index=False)
-            print(f'Saved data for {planet_name} to {file_path}')
+            try:
+                response = requests.get(url)
+                response.raise_for_status()
+
+                contents = response.text
+                # NAME_MAX for rows with malformed reference URLs!!!
+                tbl = ascii.read(contents, format="ipac", guess=False)
+                df = tbl.to_pandas()      # type: ignore
+
+                file_path = os.path.join(planet_dir, file_name.replace('.tbl', '.csv'))
+                df.to_csv(file_path, index=False)
+                print(f'Saved data for {planet_name} to {file_path}')
+            except Exception as e:
+                print(f'WARNING: Skipping {planet_name}/{file_name} - failed to download/parse: {e}')
+                failed_urls.append(url)
+
+    if failed_urls:
+        print(f'\n{len(failed_urls)} file(s) could not be downloaded/parsed and were skipped:')
+        for url in failed_urls:
+            print(f'  - {url}')
 
 
 def process_downloads(base_directory, data_path: str, output_dir: str) -> None:
@@ -222,7 +233,8 @@ def get_exoplanet_params_tap(planet_name: str, columns: list | str, table: str =
     # Return results as a dictionary
     return {col: row[col] for col in columns}
 
-def find_exoplanets_by_condition(conditions: list[str] | str, return_columns: list[str] | str, table: str = "pscomppars", distinct: bool = True, limit: int | None = None,) -> list[dict]:
+
+def find_exoplanets_by_condition(conditions: list[str] | str, return_columns: list[str] | str, table: str = "pscomppars", distinct: bool = True, limit: int | None = None, filename: str = "exoplanets", base_directory: str = "",) -> list[dict]:
     """
     Query NASA Exoplanet Archive TAP service for planets using conditions on parameters.
 
@@ -276,6 +288,13 @@ def find_exoplanets_by_condition(conditions: list[str] | str, return_columns: li
     results = []
     for row in reader:
         results.append({col: row.get(col) for col in return_columns})
+
+    output_path = os.path.join(base_directory, f"{filename}.txt")
+    if results:
+        with open(output_path, "w", encoding="utf-8", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=return_columns)
+            writer.writeheader()
+            writer.writerows(results)
 
     return results
 
@@ -391,6 +410,10 @@ class FindExoplanetsByCondition(BaseTool):
     limit: int | None = RuntimeField( 
         description="Optional max number of rows to return"
     )
+    filename: str = RuntimeField(
+        description="Name of the output file without extension"
+    )
+    base_directory: str = StateField()
 
     def _run(self) -> str:
         matches = find_exoplanets_by_condition(
@@ -399,6 +422,8 @@ class FindExoplanetsByCondition(BaseTool):
             table=self.table,
             distinct=self.distinct,
             limit=self.limit,
+            filename=self.filename,
+            base_directory=self.base_directory,
         )
 
         if not matches:
@@ -410,6 +435,7 @@ class FindExoplanetsByCondition(BaseTool):
             output += f"{i}. {line}\n"
 
         return output
+
 
 
 class GetExoplanetParameters(BaseTool):
@@ -540,18 +566,18 @@ class DownloadDataset(BaseTool):
     5. Provide the URL, text, or save to file
     """
 
-    # Only ONE of these three should be provided
-    wgets_file_path: str | None = RuntimeField(
-        default=None,
-        description="Path to existing wgets text file (relative to base_directory). Use if user saved wget commands to a file."
+    # Only ONE of these three should be provided (leave the other two as empty strings)
+    wgets_file_path: str = RuntimeField(
+        default="",
+        description="Path to existing wgets text file (relative to base_directory). Use if user saved wget commands to a file. Leave as empty string if using wget_text or wget_url instead."
     )
-    wget_text: str | None = RuntimeField(
-        default=None,
-        description="Raw wget commands as text. Use when user pastes wget commands directly into chat."
+    wget_text: str = RuntimeField(
+        default="",
+        description="Raw wget commands as text. Use when user pastes wget commands directly into chat. Leave as empty string if using wgets_file_path or wget_url instead."
     )
-    wget_url: str | None = RuntimeField(
-        default=None,
-        description="URL to Firefly wget page. Tool will scrape wget commands from this URL automatically."
+    wget_url: str = RuntimeField(
+        default="",
+        description="URL to Firefly wget page. Tool will scrape wget commands from this URL automatically. Leave as empty string if using wgets_file_path or wget_text instead."
     )
 
     output_dir: str = RuntimeField(
@@ -569,9 +595,9 @@ class DownloadDataset(BaseTool):
 
         # Count how many input methods were provided
         inputs_provided = sum([
-            self.wgets_file_path is not None,
-            self.wget_text is not None,
-            self.wget_url is not None
+            bool(self.wgets_file_path),
+            bool(self.wget_text),
+            bool(self.wget_url)
         ])
 
         if inputs_provided == 0:
@@ -704,3 +730,4 @@ if __name__ == "__main__":
 
     process_wgets_file(base_directory, wgets_file, raw_data_path)
     process_downloads(base_directory, raw_data_path, processed_data_path)
+
