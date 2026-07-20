@@ -23,10 +23,9 @@ from aster_toolkit import (
     RunTaurexModelTool,
     SetTaurexPaths,
     SimulateTaurexRetrieval,
-    PlotCornerPosteriors,
     GetExoplanetParameters,
-    DownloadDataset, 
-    FindExoplanetsByCondition
+    DownloadDataset,
+    FindExoplanetsByCondition,
 )
 
 base_directory = 'workspace'
@@ -53,7 +52,7 @@ tools = [
     # Data acquisition tools
     GetExoplanetParameters(),
     DownloadDataset(base_directory=base_directory),
-    FindExoplanetsByCondition()
+    FindExoplanetsByCondition(base_directory=base_directory),
 ]
 
 hooks = [DangerousCommandHook()]
