@@ -63,6 +63,10 @@ def process_wgets_file(base_directory, wgets_file_path: str, data_path: str) -> 
                 response.raise_for_status()
 
                 contents = response.text
+                # guess=False: the format is IPAC, and astropy's format
+                # guessing calls Path(contents).is_file() on the raw table text, which
+                # raises OSError('File name too long') on POSIX systems when the text
+                # contains '/' characters positioned such that a path segment exceeds
                 # NAME_MAX for rows with malformed reference URLs!!!
                 tbl = ascii.read(contents, format="ipac", guess=False)
                 df = tbl.to_pandas()      # type: ignore
@@ -299,7 +303,142 @@ def find_exoplanets_by_condition(conditions: list[str] | str, return_columns: li
     return results
 
 
+class FindExoplanetsByCondition(BaseTool):
+    """
+    Query the NASA Exoplanet Archive using the TAP (Table Access Protocol) service to retrieve exoplanets or planetary systems that satisfy user-defined conditions.
 
+    This tool enables flexible, condition-based searches over the Exoplanet Archive by allowing users to specify one or more constraints using ADQL (Astronomical Data Query Language) syntax. 
+
+    The query is constructed dynamically as:
+
+        SELECT [DISTINCT] <column_1>, <column_2>, ...
+        FROM <table>
+        WHERE <condition_1> AND <condition_2> AND ...
+
+    Key Features:
+    - Supports ADQL WHERE conditions
+    - Allows filtering on planetary system parameters
+    - Can return one or more valid columns, including planet names, host names, or physical parameters
+    - Supports optional deduplication via DISTINCT
+    - Supports limiting result size for performance
+
+    Parameters
+    ----------
+    conditions : list[str]
+        A list of ADQL-compatible conditional expressions used in the WHERE clause.
+        Each condition should be a valid SQL/ADQL boolean expression.
+
+        Examples:
+            ["sy_pnum >= 2"]
+            ["pl_eqt > 1000", "pl_bmassj > 0.5"]
+            ["st_teff BETWEEN 5000 AND 6000"]
+            ["discoverymethod = 'Transit'"]
+
+        Multiple conditions are combined using logical AND.
+
+    return_columns : list[str]
+        The columns whose values will be returned from the query.
+
+        Common options include:
+            - "pl_name"   : planet names
+            - "hostname"  : host star / system names
+            - any valid column in the selected table
+
+    table : str
+        The Exoplanet Archive table to query.
+            - "pscomppars" : composite parameters (recommended)
+            - "ps"         : full parameter sets
+
+    distinct : bool
+        If True, duplicate rows across the selected columns are removed using DISTINCT.
+        If False, all matching rows are returned (including duplicates).
+
+        Example:
+            - DISTINCT hostname → unique systems
+            - non-DISTINCT pl_name → all planets (including multiple per system)
+
+    limit : int | None
+        Maximum number of rows to return.
+
+        Useful for avoiding large downloads
+        If None, all matching rows are returned.
+
+    Returns
+    -------
+    str
+        A formatted string listing the matching rows and their requested column values.
+
+    Notes
+    -----
+    - This tool directly exposes ADQL condition strings; malformed queries may result in TAP service errors.
+    - String values in conditions must be quoted: "discoverymethod = 'Transit'"
+    - Numerical comparisons do not require quotes: "pl_eqt > 1000"
+
+    Example Queries
+    ---------------
+    - Systems with multiple planets:
+        conditions = ["sy_pnum >= 2"]
+        return_columns = ["hostname"]
+    
+    - Planets in multi-planet systems with semi-major axis:
+        conditions = ["sy_pnum >= 2"]
+        return_columns = ["pl_name", "pl_orbsmax"]
+    
+    - Hot Jupiter candidates (massive, hot planets):
+        conditions = ["pl_bmassj > 0.3", "pl_eqt > 1000"]
+        return_columns = ["pl_name", "pl_bmassj", "pl_eqt"]
+    
+    - Nearby planetary systems (within 50 pc):
+        conditions = ["sy_dist < 50"]
+        return_columns = ["hostname", "sy_dist"]
+
+    Important
+    ---------
+    Users should cite the NASA Exoplanet Archive if results are used for scientific research.
+    """
+
+    conditions: list = RuntimeField(
+        description="List of ADQL WHERE conditions, e.g. ['sy_pnum >= 2', 'pl_eqt > 1000']"
+    )
+    return_columns: list = RuntimeField(
+        description="Columns to return, e.g. ['pl_name', 'pl_orbsmax']"
+    )
+    table: str = RuntimeField(
+        default="pscomppars",
+        description="TAP table name: 'pscomppars' or 'ps'"
+    )
+    distinct: bool = RuntimeField(
+        default=True,
+        description="Whether to return unique values only"
+    )
+    limit: int | None = RuntimeField( 
+        description="Optional max number of rows to return"
+    )
+    filename: str = RuntimeField(
+        description="Name of the output file without extension"
+    )
+    base_directory: str = StateField()
+
+    def _run(self) -> str:
+        matches = find_exoplanets_by_condition(
+            conditions=self.conditions,
+            return_columns=self.return_columns,
+            table=self.table,
+            distinct=self.distinct,
+            limit=self.limit,
+            filename=self.filename,
+            base_directory=self.base_directory,
+        )
+
+        if not matches:
+            return "No matching results found."
+
+        output = "Matching results:\n\n"
+        for i, row in enumerate(matches, start=1):
+            line = ", ".join(f"{k}: {v}" for k, v in row.items())
+            output += f"{i}. {line}\n"
+
+        return output
 
 
 
