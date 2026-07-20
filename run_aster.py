@@ -26,6 +26,12 @@ from aster_toolkit import (
     GetExoplanetParameters,
     DownloadDataset,
     FindExoplanetsByCondition,
+    FetchJWSTProposals,
+    ClusterJWSTProposals,
+    PredictObservationMode,
+    WriteSlurmScript,
+    SubmitSlurmJob,
+    CheckSlurmJob,
 )
 
 base_directory = 'workspace'
@@ -47,12 +53,21 @@ tools = [
     SetTaurexPaths,
     RunTaurexModelTool(base_directory=base_directory),
     SimulateTaurexRetrieval(base_directory=base_directory),
-    PlotCornerPosteriors(base_directory=base_directory),
 
     # Data acquisition tools
     GetExoplanetParameters(),
     DownloadDataset(base_directory=base_directory),
     FindExoplanetsByCondition(base_directory=base_directory),
+
+    # JWST proposal analysis tools
+    FetchJWSTProposals(base_directory=base_directory),
+    ClusterJWSTProposals(base_directory=base_directory),
+    PredictObservationMode(base_directory=base_directory),
+
+    # Cluster / SLURM tools
+    WriteSlurmScript(base_directory=base_directory),
+    SubmitSlurmJob(base_directory=base_directory),
+    CheckSlurmJob(),
 ]
 
 hooks = [DangerousCommandHook()]
