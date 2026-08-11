@@ -3,20 +3,23 @@ ASTER Tools Package
 
 All tools for the Agentic Science Toolkit for Exoplanet Research.
 """
-from .taurex.forward_model import RunTaurexModelTool
+from .taurex.forward_model import RunTaurexTransmissionModelTool, RunTaurexEmissionModelTool
 from .taurex.set_paths import SetTaurexPaths
 from .taurex.retrieval import SimulateTaurexRetrieval
-from .taurex.corner_plot import PlotCornerPosteriors
+from .taurex.parfile_tools import WriteTaurexParameterFile
 from .data_acquisition.exoarchive import GetExoplanetParameters, DownloadDataset, FindExoplanetsByCondition
+from .chemistry.fastchem_tools import RunFastChemEquilibriumTool
 
 __all__ = [
-    'RunTaurexModelTool',
+    'RunTaurexTransmissionModelTool',
+    'RunTaurexEmissionModelTool',
     'SetTaurexPaths',
     'SimulateTaurexRetrieval',
-    'PlotCornerPosteriors',
+    'WriteTaurexParameterFile',
     'GetExoplanetParameters',
     'DownloadDataset',
     'FindExoplanetsByCondition',
+    'RunFastChemEquilibriumTool',
 ]
 
 # from .taurex_tools import (
