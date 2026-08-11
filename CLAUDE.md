@@ -13,6 +13,7 @@ ASTER includes specialized skill files in `workspace/skills/` that contain detai
 - **taurex_setup.md**: TauREx configuration, line list downloads, path setup, and troubleshooting
 - **corner_plots.md**: How to create publication-quality corner plots from retrieval results
 - **retrieval_best_practices.md**: Parameter bounds guidance, optimizer selection, and retrieval strategies for different use cases
+- **fastchem_setup.md**: FastChem equilibrium-chemistry tool - input parameters, single-point vs. profile output, and troubleshooting
 
 **Important**: These skill files are NOT loaded into the system prompt. When you need information about these topics, use the ReadFileTool to read the relevant skill file from `workspace/skills/`.
 
@@ -60,10 +61,16 @@ Tools are organized in the `aster_toolkit/` package with clear separation of con
 - `forward_model.py` - `RunTaurexModelTool` for generating synthetic transmission spectra
 - `retrieval.py` - `SimulateTaurexRetrieval` for atmospheric parameter fitting
 - `set_paths.py` - `SetTaurexPaths` for configuring opacity/CIA data paths
+- `parfile_tools.py` - `WriteTaurexParameterFile`, generates a TauREx CLI `.par` file (for `taurex -i model.par -o output.h5 --retrieval`) instead of running in-session, this is useful for launching a job on a cluster via the Cluster/SLURM tools below. `xsec_path`/`cia_path` default to `CLUSTER_XSEC_PATH`/`CLUSTER_CIA_PATH` from `.env` (cluster-side paths, distinct from `SetTaurexPaths`' local ones) leave them unset rather than guessing a path. `chemistry_type='equilibrium'` writes ACE thermochemical equilibrium chemistry (`chemistry_type = equilibrium`/`metallicity`/`C_ratio` from the installed `acepython.taurex3.ACEChemistry`, the config key is `C_ratio`, not `co_ratio`), `molecules`/`molecular_abundances` must not be set in this mode. When `optimizer='multinest'` and `retrieval=True`, also pass/default `multinest_path` (from `CLUSTER_MULTINEST_PATH`) plus `multinest_search_multi_modes`/`multinest_resume`/`multinest_importance_sampling`, written into `[Optimizer]` as `multi_nest_path`/`search_multi_modes`/`resume`/`importance_sampling`.
 
 **Data Acquisition** (`aster_toolkit/data_acquisition/`):
 - `exoarchive.py` - `GetExoplanetParameters` for TAP queries to NASA Exoplanet Archive
 - `exoarchive.py` - `DownloadDataset` for downloading and processing spectra from NASA archive
+
+**Chemistry** (`aster_toolkit/chemistry/`):
+- `fastchem_tools.py` - `RunFastChemEquilibriumTool`, gas-phase chemical-equilibrium mixing ratios via FastChem (`pyfastchem`). Independent of TauREx, no opacity paths or planet/star model needed, just a temperature (and optionally pressure/metallicity/C-O ratio).
+- Input data (`fastchem_input/` at the project root) is located automatically by the tool, unlike TauREx line lists, the agent never needs to supply paths
+- Read `skills/fastchem_setup.md` before using this tool for parameter details and single-point vs. profile output behavior
 
 ### TauREx Path Configuration
 
@@ -92,7 +99,7 @@ TauREx requires opacity cross-sections and CIA (collision-induced absorption) fi
 
 ### Forward Modeling
 
-`RunTaurexModelTool` generates synthetic transmission spectra given planet/star parameters:
+`RunTaurexTransmissionModelTool` generates synthetic transmission spectra given planet/star parameters:
 
 Key parameters:
 - Physical: `planet_radius` (RJup), `planet_mass` (MJup), `star_radius` (Rsun)
@@ -128,23 +135,24 @@ Output files in `workspace/`:
 
 `SimulateTaurexRetrieval` fits atmospheric parameters to observed spectra using nested sampling.
 
-**Retrieval Modes**:
-- `"reduced"` (default) - Fits mixing ratios of 5 predefined molecules (H2O, CH4, CO2, CO, NH3)
-- `"equilibrium"` - Fits metallicity and C/O ratio using ACE thermochemical equilibrium
-- `"full"` - Fits custom list of molecules specified by user
+**Chemistry Configuration** (same flexibility as the forward model tools):
+- `chemistry_type='free'` (default) - fits molecule mixing ratios, chosen by (in this order): `molecular_abundances` (exact initial values) > `molecules` (names only, seeded from a fixed lookup table) > the fixed basic 5-molecule set (H2O, CH4, CO2, CO, NH3) if neither is given
+- `chemistry_type='equilibrium'` - fits `metallicity` and C/O ratio via ACE thermochemical equilibrium instead, seeded from the `metallicity`/`co_ratio` arguments (only use if the user explicitly asks for equilibrium/ACE chemistry)
 
 **Key Parameters**:
 - `observation_path` - **REQUIRED**. Path to 3-4 column spectrum file (wavelength μm, depth, error, [bin width]). Use exact path from DownloadDataset output or user-provided file.
-- `fit_params` - Parameters to fit (minimum: `['planet_radius', 'T']` + chemistry params). Can be passed as a list or string representation.
-- `bounds` - Dict of `{param: [low, high]}` bounds. Can be passed as a dict or string representation. **Optional** - if not provided, reasonable defaults are auto-generated.
+- `fit_params` - Parameters to fit. Can be passed as a list or string representation. **Optional** if not given, auto-generated from the chemistry configuration: `['planet_radius', 'T']` + the resolved molecule list, or `['planet_radius', 'T', 'metallicity', 'C_O_ratio']` for `chemistry_type='equilibrium'`.
+- `bounds` - Dict of `{param: [low, high]}` bounds. Can be passed as a dict or string representation. **Optional** if not provided, reasonable defaults are auto-generated.
 - `optimizer` - `"nestle"` (recommended, always works) or `"multinest"` (faster but requires difficult installation)
 
 **Important Notes**:
 - Pressure units in TauREx are **Pascals**, not bars (default range: 1e-1 to 1e6 Pa)
-- Molecular abundance bounds should be `[1e-9, 1e-2]`
+- Molecular abundance bounds should be `[1e-12, 1e-2]`
 - Standard `nlayers=100` (only change if user requests)
-- **String parameters**: `fit_params`, `bounds`, and `molecular_abundances` accept both native Python objects and string representations (e.g., `"['H2O', 'CH4']"` or `['H2O', 'CH4']`). The tool will parse strings automatically.
-- **Auto-generated bounds**: If `bounds` is not provided, the tool generates sensible defaults: planet_radius [0.5, 2.5] RJup, T [500, 3000] K, molecules [1e-9, 1e-2], metallicity [0.1, 10.0], c_o_ratio [0.1, 2.0]
+- **String parameters**: `fit_params`, `bounds`, `molecules`, and `molecular_abundances` accept both native Python objects and string representations (e.g., `"['H2O', 'CH4']"` or `['H2O', 'CH4']`). The tool will parse strings automatically.
+- **Auto-generated bounds**: If `bounds` is not provided, the tool generates sensible defaults: planet_radius [0.5, 2.5] RJup, T [500, 3000] K, molecules [1e-12, 1e-2], metallicity [0.1, 10.0], C_O_ratio [0.1, 2.0]
+- **`num_live_points` minimum on a cluster**: `WriteTaurexParameterFile` (the tool that writes `.par` files for cluster jobs, via `parfile_tools.py`) enforces a floor of 500 live points when `retrieval=True`, silently raising anything lower. 1000 is recommended and is the tool's default for cluster-specific. When using `SimulateTaurexRetrieval` runs in-session locally rather than on a cluster, keeps its own lower default (100).
+- **Note the exact casing `C_O_ratio`** (not `co_ratio` or `c_o_ratio`) when it appears in `fit_params`/`bounds`: it must match TauREx's `ACEChemistry.fitting_parameters()` name exactly. The tool-facing `co_ratio` argument (a plain float, used to seed the initial value) is different from this internal fit-parameter name.
 
 **Outputs** (saved to `output_path` with `output_basename` prefix):
 - `*_fit.png` - Observed vs best-fit comparison
@@ -185,7 +193,7 @@ The `exoarchive.py` module provides access to NASA Exoplanet Archive data:
 
 1. Ensure line lists are downloaded (`download_linelists.py`)
 2. Set TauREx paths using absolute paths
-3. Call `RunTaurexModelTool` with planet/star parameters
+3. Call `RunTaurexTransmissionModelTool` with planet/star parameters
 4. Output saved to `workspace/{filename}_spectrum.png`
 
 ### Running a Retrieval
@@ -252,7 +260,7 @@ When working with the agent system:
 1. **StateField vs RuntimeField**: Tools use `StateField` for agent-managed state (e.g., `base_directory`) and `RuntimeField` for user/LLM-provided inputs
 2. **Streaming callbacks**: Retrieval functions support streaming output via `stream_callback` parameter for real-time progress
 3. **Lazy imports**: The codebase uses lazy imports to speed startup time
-4. **CamelCase naming**: All tool names follow Python class conventions (e.g., `RunTaurexModelTool`, not `run_taurex_model_tool`)
+4. **CamelCase naming**: All tool names follow Python class conventions (e.g., `RunTaurexTransmissionModelTool`, not `run_taurex_model_tool`)
 
 ## Important Notes
 
