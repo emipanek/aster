@@ -2,7 +2,15 @@ requests
 tqdm
 taurex
 astropy
+pandas
 orchestral-ai
 corner
 pymultinest
 taurex_ultranest
+anthropic
+sentence-transformers
+umap-learn
+hdbscan
+paramiko
+plotly
+pyfastchem
