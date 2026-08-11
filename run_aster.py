@@ -28,22 +28,7 @@ from aster_toolkit import (
     GetExoplanetParameters,
     DownloadDataset,
     FindExoplanetsByCondition,
-    FetchJWSTProposals,
-    ClusterJWSTProposals,
-    PredictObservationMode,
-    WriteSlurmScript,
-    SubmitSlurmJob,
-    CheckSlurmJob,
-    GetClusterPaths,
-    UploadClusterFile,
-    FetchClusterFile,
     RunFastChemEquilibriumTool,
-    SearchMastJwstObservations,
-    GetMastObservationProducts,
-    DownloadMastJwstProducts,
-    CrossmatchJwstToPlanets,
-    AggregateJwstObservations,
-    DownloadDemographicJwstProducts,
 )
 
 base_directory = 'workspace'
@@ -73,29 +58,8 @@ tools = [
     DownloadDataset(base_directory=base_directory),
     FindExoplanetsByCondition(base_directory=base_directory),
 
-    # JWST proposal analysis tools
-    FetchJWSTProposals(base_directory=base_directory),
-    ClusterJWSTProposals(base_directory=base_directory),
-    PredictObservationMode(base_directory=base_directory),
-
-    # Cluster / SLURM tools
-    WriteSlurmScript(base_directory=base_directory),
-    SubmitSlurmJob(base_directory=base_directory),
-    CheckSlurmJob(),
-    GetClusterPaths(),
-    UploadClusterFile(base_directory=base_directory),
-    FetchClusterFile(base_directory=base_directory),
-
     # Chemistry tools
     RunFastChemEquilibriumTool(base_directory=base_directory),
-
-    # MAST / JWST archive tools
-    SearchMastJwstObservations(),
-    GetMastObservationProducts(),
-    DownloadMastJwstProducts(base_directory=base_directory),
-    CrossmatchJwstToPlanets(base_directory=base_directory),
-    AggregateJwstObservations(base_directory=base_directory),
-    DownloadDemographicJwstProducts(base_directory=base_directory),
 ]
 
 hooks = [DangerousCommandHook()]
