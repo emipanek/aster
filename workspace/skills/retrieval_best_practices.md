@@ -128,16 +128,28 @@ nlayers = 100  # Standard resolution
 **Goal**: Fit thermochemical equilibrium parameters
 
 ```python
-retrieval_mode = 'equilibrium'
-fit_params = ['planet_radius', 'T', 'metallicity', 'c_o_ratio']
+chemistry_type = 'equilibrium'
+fit_params = ['planet_radius', 'T', 'metallicity', 'C_O_ratio']  # exact casing matters
 bounds = {
     'planet_radius': [0.8, 1.8],
     'T': [1000, 2000],
     'metallicity': [0.1, 10.0],
-    'c_o_ratio': [0.1, 2.0]
+    'C_O_ratio': [0.1, 2.0]
 }
 optimizer = 'multinest'
 ```
+
+Note: both `fit_params`/`bounds` above are optional - if omitted, `chemistry_type='equilibrium'` alone auto-generates this exact `fit_params` list and reasonable bounds. Seed the starting point via the tool's `metallicity`/`co_ratio` arguments (plain floats), which are distinct from the `C_O_ratio` fit-parameter name above.
+
+### Free Chemistry with Specific Molecules
+**Goal**: Fit a custom molecule list without hand-writing fit_params/bounds
+
+```python
+chemistry_type = 'free'
+molecules = ['H2O', 'CH4', 'HCN']  # names only - seeded from a fixed lookup table
+# or: molecular_abundances = {'H2O': 0.01, 'CH4': 0.0005, 'HCN': 1e-6}  # exact starting values
+```
+`fit_params` auto-resolves to `['planet_radius', 'T', 'H2O', 'CH4', 'HCN']` and bounds default to `[1e-9, 1e-2]` per molecule - override either explicitly if you need something different.
 
 ## Common Mistakes to Avoid
 

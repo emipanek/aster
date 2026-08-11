@@ -66,7 +66,7 @@ If you encounter errors about missing opacity files:
 
 ## Forward Model Chemistry
 
-`RunTaurexModelTool` supports two chemistry modes via `chemistry_type` (default `'free'`):
+`RunTaurexTransmissionModelTool` supports two chemistry modes via `chemistry_type` (default `'free'`):
 
 **`chemistry_type='free'`** (default) - fixed mixing ratios via `TaurexChemistry`, chosen by one of (only one path is used, in this order):
 1. `molecular_abundances` - exact mixing ratios given by the user, e.g. `{'H2O': 0.02, 'CH4': 0.001}`. Use only when the user specifies actual numbers.
@@ -77,7 +77,7 @@ If you encounter errors about missing opacity files:
 
 ## Forward Model Output Files
 
-Each run of `RunTaurexModelTool` with a given `filename` saves, in `workspace/`:
+Each run of `RunTaurexTransmissionModelTool` with a given `filename` saves, in `workspace/`:
 - `{filename}_spectrum.png` - plot of the transmission spectrum
 - `{filename}_fm_wavelength.npy` - wavelength array (µm, full line-list resolution)
 - `{filename}_fm_spectrum.npy` - corresponding spectrum array
