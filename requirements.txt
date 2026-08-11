@@ -6,3 +6,7 @@ orchestral-ai
 corner
 pymultinest
 taurex_ultranest
+pandas
+paramiko
+plotly
+pyfastchem
