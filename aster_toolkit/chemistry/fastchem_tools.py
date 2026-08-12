@@ -8,9 +8,7 @@ from orchestral.tools.base.tool import BaseTool
 from orchestral.tools.base.field_utils import RuntimeField, StateField
 
 
-# Curated set of commonly-relevant species, used when the user doesn't name specific
-# molecules and doesn't ask for a top-N ranking either - keeps results deterministic
-# instead of dumping FastChem's full ~800-species gas-phase network.
+# Curated set of commonly-relevant species, used when the user doesn't name specific molecules and doesn't ask for a top-N ranking either, so that it keeps the results deterministic instead of dumping FastChem's full ~800-species gas-phase network.
 DEFAULT_SPECIES = ['H2', 'He', 'H2O', 'CO', 'CO2', 'CH4', 'NH3', 'HCN', 'H2S', 'N2', 'Na', 'K', 'TiO', 'VO', 'FeH', 'SiO']
 
 VALID_ELEMENT_ABUNDANCE_SOURCES = ['asplund_2021', 'asplund_2009', 'lodders_2003', 'lodders_2025']
@@ -97,9 +95,9 @@ class RunFastChemEquilibriumTool(BaseTool):
     """
     Predict gas-phase chemical-equilibrium mixing ratios for a planetary atmosphere using FastChem.
 
-    Independent of the TauREx tools - this only needs a temperature (and optionally pressure),
+    Independent of the TauREx tools, this only needs a temperature (and optionally pressure),
     not a full planet/star/opacity setup. Use this when the user asks something like
-    "what molecules would I expect at equilibrium for a planet at 1500 K" - no line lists or
+    "what molecules would I expect at equilibrium for a planet at 1500 K" no line lists or
     SetTaurexPaths required.
     """
 
@@ -213,11 +211,18 @@ def generate_fastchem_equilibrium(
 
     flag = fastchem.calcDensities(input_data, output_data)
 
-    number_densities = np.array(output_data.number_densities)  # shape (n_points, n_gas_species)
+    # pyfastchem returns a 1D array (just the species dimension) for a single (T, P) point and 2D (n_points, n_gas_species) for a profile, normalize to always be 2D so the rest of this function doesn't need to special-case single-point calls.
+    number_densities = np.atleast_2d(np.array(output_data.number_densities))
     total_density = number_densities.sum(axis=1)
     mixing_ratios = number_densities / total_density[:, None]
 
-    convergence_msg = pyfastchem.FASTCHEM_MSG[max(output_data.fastchem_flag)]
+    worst_flag = max(output_data.fastchem_flag)
+    fastchem_msg = np.asarray(pyfastchem.FASTCHEM_MSG)
+    if 0 <= worst_flag < len(fastchem_msg):
+        convergence_msg = fastchem_msg[worst_flag]
+    else:
+        # Seen in practice as a large sentinel (e.g. 9999999) when a point didn't run/converge at all rather than a valid FASTCHEM_MSG index, need to report it rather than crashing.
+        convergence_msg = f"unknown status (fastchem_flag={worst_flag})"
     all_elements_conserved = bool(np.min(output_data.element_conserved))
     convergence_note = convergence_msg + ("" if all_elements_conserved else " (WARNING: element conservation failed)")
 
