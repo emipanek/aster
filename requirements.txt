@@ -10,3 +10,6 @@ taurex_ultranest
 paramiko
 plotly
 pyfastchem
+fastapi
+rich
+'uvicorn[standard]'
