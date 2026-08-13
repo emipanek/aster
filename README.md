@@ -1,16 +1,10 @@
 <img width="434" height="363" alt="logo_no_background (1)" src="https://github.com/user-attachments/assets/0e6f11dd-0f08-4200-a8de-5823a97c7fdd" />
 
-# ASTER - **Agentic Science Toolkit for Exoplanet Research**
+# ASTER 
 
-This is the refactored version of ASTER using the `orchestral-ai` package from PyPI.
+## Overview
 
-## Key Changes
-
-1. **Uses orchestral-ai package** - Instead of local orchestral/ directory
-2. **CamelCase tool names** - All tools follow Python class naming conventions
-3. **Improved base_directory handling** - Using StateField pattern
-4. **Lazy imports** - Faster startup time
-5. **Cleaner architecture** - Separated concerns and better organization
+ASTER (Agnetic Science Toolkit for Exoplanet Research) is an agentic toolkit for exoplanet research, built-on the orchestral AI framework but also accessible via other LLM-agent structure providers. 
 
 ## Installation
 
@@ -21,24 +15,33 @@ pip install -r requirements.txt
 ```
 You also need to configure a .env txt file with your API keys.
 
-## Structure
+ASTER can also be downloaded via toolbase, a package manager for AI agent tools ([see the toolbase Github for more informations](https://github.com/alexr314/toolbase)). 
 
-```
-new_aster/
-├── tools/              # All ASTER-specific tools
-│   ├── __init__.py
-│   ├── taurex_tools.py       # Taurex simulation tools
-│   ├── exoplanet_tools.py    # NASA Archive tools
-│   └── data_tools.py         # Data download and processing
-├── run_app.py          # Main application entry point
-└── requirements.txt    # Dependencies
+```bash
+pip install toolbase        # provides the `tb` command
+git clone https://github.com/emipanek/aster.git
+cd ./aster
+tb install .
 ```
 
 ## Usage
 
+### From ASTER github, within the Orchestral framework
+
 ```bash
 python run_aster.py
 ```
+
+### From toolbase
+
+The core toolbase workflow is **install → activate → connect**.
+
+```bash
+tb activate aster    # Particle Data Group lookups; `tb activate heptapod` for everything
+tb connect claude-code      # writes this project's .mcp.json (-g for user-level)
+claude                      # or codex / opencode
+```
+
 
 ## Citations
 
