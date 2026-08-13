@@ -37,7 +37,7 @@ python run_aster.py
 The core toolbase workflow is **install → activate → connect**.
 
 ```bash
-tb activate aster    # Particle Data Group lookups; `tb activate heptapod` for everything
+tb activate aster
 tb connect claude-code      # writes this project's .mcp.json (-g for user-level)
 claude                      # or codex / opencode
 ```
