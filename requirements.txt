@@ -7,6 +7,13 @@ orchestral-ai
 corner
 pymultinest
 taurex_ultranest
+anthropic
+sentence-transformers
+umap-learn
+hdbscan
 paramiko
 plotly
 pyfastchem
+fastapi
+rich
+'uvicorn[standard]'
