@@ -5,7 +5,7 @@ We reccommend the following sources, but you can add more:
 
 Opacities:
  - H2O: https://www.exomol.com/db/H2O/1H2-16O/POKAZATEL/1H2-16O__POKAZATEL__R15000_0.3-50mu.xsec.TauREx.h5
- - CO2: https://www.exomol.com/db/CO2/12C-16O2/Dozen/12C-16O2__Dozen.R15000_0.3-50mu.xsec.TauREx.h5
+ - CO2: https://www.exomol.com/db/CO2/12C-16O2/UCL-4000/12C-16O2__UCL-4000.R15000_0.3-50mu.xsec.TauREx.h5
  - NH3: https://www.exomol.com/db/NH3/14N-1H3/CoYuTe/14N-1H3__CoYuTe.R15000_0.3-50mu.xsec.TauREx.h5
  - CH4: https://www.exomol.com/db/CH4/12C-1H4/MM/12C-1H4__MM.R15000_0.3-50mu.xsec.TauREx.h5
  - CO:  https://www.exomol.com/db/CO/12C-16O/Li2015/C-O-NatAbund__Li2015.R15000_0.3-50mu.xsec.TauREx.h5
@@ -27,7 +27,7 @@ CIA_DIR = LINE_LIST_PATH / "cia"
 
 OPACITIES = {
     "H2O": "https://www.exomol.com/db/H2O/1H2-16O/POKAZATEL/1H2-16O__POKAZATEL__R15000_0.3-50mu.xsec.TauREx.h5",
-    "CO2": "https://www.exomol.com/db/CO2/12C-16O2/Dozen/12C-16O2__Dozen.R15000_0.3-50mu.xsec.TauREx.h5",
+    "CO2": "https://www.exomol.com/db/CO2/12C-16O2/UCL-4000/12C-16O2__UCL-4000.R15000_0.3-50mu.xsec.TauREx.h5",
     "NH3": "https://www.exomol.com/db/NH3/14N-1H3/CoYuTe/14N-1H3__CoYuTe.R15000_0.3-50mu.xsec.TauREx.h5",
     "CH4": "https://www.exomol.com/db/CH4/12C-1H4/MM/12C-1H4__MM.R15000_0.3-50mu.xsec.TauREx.h5",
     "CO":  "https://www.exomol.com/db/CO/12C-16O/Li2015/C-O-NatAbund__Li2015.R15000_0.3-50mu.xsec.TauREx.h5",
