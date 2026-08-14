@@ -272,7 +272,14 @@ def generate_taurex_model(
 
     chemistry_1 = build_chemistry(molecules, molecular_abundances, chemistry_type, metallicity, co_ratio)
 
+    planet = Planet(planet_radius=planet_radius, planet_mass=planet_mass)
+    # Star temperature doesn't enter transmission physics (only radius, via Rp/Rs) - BlackbodyStar
+    # still requires a value, so its own default (5000 K) is used rather than a star_temp parameter.
+    star = BlackbodyStar(radius=star_radius)
+
     model = TransmissionModel(
+        planet=planet,
+        star=star,
         temperature_profile=temperature_profile,
         chemistry=chemistry_1,
         atm_min_pressure=atm_min_pressure,
