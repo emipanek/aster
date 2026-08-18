@@ -95,8 +95,9 @@ class SimulateTaurexRetrieval(BaseTool):
     - Or ask user for their file path
 
     **IMPORTANT - Optimizer Selection**:
-    - Use optimizer="ultranest" (recommended)
-    - Can also use optimizer="multinest" or optimizer="nestle" if the user specifically requests, but ultranest is the preferred option for better sampling and performance.
+    - Preference order: 'multinest' if it's confirmed installed and working on this machine (check first, e.g. `python -c "import pymultinest"` via RunCommandTool, or note if a prior retrieval already failed with a missing-module/library error) - it's the exoplanet community's publication standard and faster than nestle. 
+    Otherwise 'nestle' (the default here - pure Python, always works).
+    - Only use optimizer="ultranest" if the user explicitly asks for it.
     - Read skills/retrieval_best_practices.md for detailed guidance
 
     **Observation file format**: 3-4 column text file:
@@ -131,8 +132,8 @@ class SimulateTaurexRetrieval(BaseTool):
 
     # Optional parameters with defaults
     optimizer: str = RuntimeField(
-        default="ultranest",
-        description="Optimizer to use for retrieval ('ultranest', 'multinest', or 'nestle'). Use 'multinest' for better sampling if not specified."
+        default="nestle",
+        description="Optimizer to use for retrieval ('nestle', 'multinest', or 'ultranest'). Prefer 'multinest' if it's confirmed installed and working on this machine (faster, publication standard) - otherwise 'nestle' (this default, always works). Only use 'ultranest' if the user explicitly asks for it."
     )
     num_live_points: int = RuntimeField(
         default=100,
@@ -407,7 +408,7 @@ def run_taurex_retrieval(
     observation_path,
     fit_params,
     bounds=None,
-    optimizer="ultranest",
+    optimizer="nestle",
     num_live_points=100, #keep the recommended value of 100 if nothing is specified by the user
     # to build a model
     star_radius=1.0,  # solar radii
@@ -437,7 +438,7 @@ def run_taurex_retrieval(
       from the metallicity/co_ratio arguments; molecules/molecular_abundances are ignored.
 
     observation_path : path to the observed spectrum file (e.g., 'path/to/test_data.dat'), the file should contain three or four columns: wavelength (microns), spectrum (transit depth or flux), vertical error on the transit depth (same units as spectrum), and width of the bins (optional).
-    optimizer : 'ultranest'. Which optimizer to use, can also use multinest or nestle. Multinest should be the preferred option for better sampling, but requires multinest to be installed, please use ultranest if not specified otherwise.
+    optimizer : 'nestle' (default, pure Python, always works). Prefer 'multinest' if it's confirmed installed and working on this machine (faster, publication standard). Only use 'ultranest' if the user explicitly asks for it.
     fit_params : which parameters to fit. If not given, auto-generated from the chemistry configuration: ['planet_radius', 'T'] + the resolved molecule list, or ['planet_radius', 'T', 'metallicity', 'C_O_ratio'] for chemistry_type='equilibrium'.
     bounds : dict[str, [low, high]], the bounds for each fitted parameter. The range should be fairly narrow to help the optimizer converge quickly, but not too narrow to avoid cutting off valid solutions. It should be physically motivated.
 
@@ -546,7 +547,7 @@ def run_taurex_retrieval(
 
     # Build optimizer
     if optimizer is None:
-        optimizer = "ultranest"
+        optimizer = "nestle"
 
     stream(f"Setting up {optimizer} optimizer...\n")
     stream(f"Using {num_live_points} live points (lower = faster but less accurate)\n")

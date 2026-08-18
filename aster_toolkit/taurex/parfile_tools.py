@@ -321,7 +321,10 @@ class WriteTaurexParameterFile(BaseTool):
         default="",
         description="Dict of {param: [low, high]} bounds. Only used if retrieval=True. Optional - if left as an empty string, auto-generated."
     )
-    optimizer: str = RuntimeField(default="nestle", description="Optimizer for retrieval jobs: 'nestle', 'multinest', or 'polychord'.")
+    optimizer: str = RuntimeField(
+        default="nestle",
+        description="Optimizer for retrieval jobs: 'nestle', 'multinest', or 'polychord'. Prefer 'multinest' if pymultinest is confirmed installed and working on the machine that will run this .par file (faster, publication standard) - otherwise 'nestle' (this default, always works)."
+    )
     num_live_points: int = RuntimeField(
         default=RECOMMENDED_CLUSTER_LIVE_POINTS,
         description=(

@@ -150,7 +150,7 @@ Output files in `workspace/`:
 - `observation_path` - **REQUIRED**. Path to 3-4 column spectrum file (wavelength μm, depth, error, [bin width]). Use exact path from DownloadDataset output or user-provided file.
 - `fit_params` - Parameters to fit. Can be passed as a list or string representation. **Optional** if not given, auto-generated from the chemistry configuration: `['planet_radius', 'T']` + the resolved molecule list, or `['planet_radius', 'T', 'metallicity', 'C_O_ratio']` for `chemistry_type='equilibrium'`.
 - `bounds` - Dict of `{param: [low, high]}` bounds. Can be passed as a dict or string representation. **Optional** if not provided, reasonable defaults are auto-generated.
-- `optimizer` - `"nestle"` (recommended, always works) or `"multinest"` (faster but requires difficult installation)
+- `optimizer` - prefer `"multinest"` if `pymultinest` is confirmed installed and working (faster, publication standard) - otherwise `"nestle"` (default, pure Python, always works). Only use `"ultranest"` if the user explicitly asks for it.
 
 **Important Notes**:
 - Pressure units in TauREx are **Pascals**, not bars (default range: 1e-1 to 1e6 Pa)
@@ -209,7 +209,7 @@ The `exoarchive.py` module provides access to NASA Exoplanet Archive data:
 2. Ensure line lists downloaded and TauREx paths set (with `ls`/`pwd` to get absolute paths)
 3. Obtain observed spectrum (via `DownloadDataset` tool or user-provided)
 4. Choose retrieval mode and configure fit parameters/bounds (or use auto-generated defaults)
-5. Call `SimulateTaurexRetrieval` with `optimizer="nestle"` (default, always works)
+5. Call `SimulateTaurexRetrieval` with `optimizer="multinest"` if confirmed installed/working, else the default `optimizer="nestle"` (always works)
 6. Review outputs: fit plot, corner plot, and posterior samples
 
 **Important**: The agent should read the skill file before running ANY retrieval to understand optimizer selection and parameter bounds.
@@ -273,6 +273,6 @@ When working with the agent system:
 
 - Always use **absolute paths** for TauREx opacity/CIA configuration
 - Pressure units in TauREx are **Pascals** (Pa), not bars
-- For retrieval, use `"nestle"` optimizer by default (multinest requires complex installation)
+- For retrieval, prefer `"multinest"` if confirmed installed/working (faster, publication standard), else the default `"nestle"` (multinest requires difficult installation); `"ultranest"` only if the user explicitly asks for it
 - The `.env` file contains API keys for LLM backends - never commit this file
 - Planet names in archive queries use format like `"WASP-39 b"` (space, lowercase designation)

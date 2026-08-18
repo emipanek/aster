@@ -60,35 +60,34 @@ The bounds you set directly control:
 
 **IMPORTANT**: num_live_points should NEVER be less than 50, the recommended value is 100! If the user specifies less than 50, please print a warning message.
 
-### nestle 
+**Decision procedure** (check in this order):
+1. **Is `pymultinest` confirmed installed and working?** (e.g. `python -c "import pymultinest"` succeeds, or a prior retrieval in this session already ran multinest successfully) -> use **multinest**.
+2. **Otherwise** -> use **nestle** (the safe default - always works, no installation to verify).
+3. **ultranest** -> only use this if the user explicitly asks for it by name. Don't reach for it just because it might be faster or "more modern" - it's opt-in only.
+
+### multinest (Publication Standard - preferred when available)
+- **Pros**: State-of-the-art nested sampling, most widely used in exoplanet community, faster than nestle
+- **Cons**: **Difficult to install** - requires compiled Fortran libraries (MultiNest + pymultinest), and even when "installed" can fail at runtime from MPI-implementation mismatches or similar environment issues (see `skills/cluster_setup.md` for real examples encountered on this project's cluster)
+- **Use for**: The default choice whenever it's confirmed installed and working - not just "final publication-quality results," any retrieval benefits from it being faster
+- **Check availability**: Try importing pymultinest first, or note if a prior retrieval already failed with a missing-module/library error - if so, fall back to nestle without re-trying multinest
+
+### nestle (default fallback)
 - **Pros**: Pure Python, easy to install, reliable convergence, works out-of-the-box
 - **Cons**: Slower than multinest for complex retrievals
-- **Use for**: **All retrievals unless multinest is confirmed working**
+- **Use for**: The default whenever multinest isn't confirmed installed/working - always works, no dependency risk
 - **Installation**: Already included in ASTER dependencies
 - **Status**: available
 
-### multinest (Publication Standard)
-- **Pros**: State-of-the-art nested sampling, most widely used in exoplanet community, faster than nestle
-- **Cons**: **Difficult to install** - requires compiled Fortran libraries (MultiNest + pymultinest)
-- **Use for**: Final publication-quality results **only if successfully installed**
-- **Installation**: Requires system-level MultiNest library + `pymultinest` Python package
-- **Check availability**: Try running a test retrieval first - if it fails with module errors, use nestle
-
-### ultranest
+### ultranest (opt-in only)
 - **Pros**: Faster than MultiNest, modern algorithm, pure Python
 - **Cons**: Less extensively tested in exoplanet literature
-- **Use for**: When speed is important and you can install additional packages
+- **Use for**: **Only when the user explicitly asks for ultranest by name** - never choose it automatically over multinest/nestle
 - **Status**: available in ASTER dependencies
 
 ### polychord / dipolychord
 - **Pros**: Efficient for high-dimensional parameter spaces
 - **Cons**: Less commonly used for exoplanet retrievals, requires additional installation
 - **Use for**: Very high-dimensional problems (>20 parameters)
-
-**Recommendation order**:
-1. **nestle** - Use this is Multinest not installed, but can be really slow
-2. **multinest** - Only if you've confirmed it's installed and working
-3. **ultranest** - Only if you need speed and are willing to install extra packages
 
 ## Strategy for Different Use Cases
 
@@ -120,7 +119,7 @@ bounds = {
     'CO': [1e-9, 1e-2],
     'NH3': [1e-9, 1e-2]
 }
-optimizer = 'multinest'  # Best sampling
+optimizer = 'multinest'  # if confirmed installed/working - otherwise 'nestle'
 nlayers = 100  # Standard resolution
 ```
 
@@ -136,7 +135,7 @@ bounds = {
     'metallicity': [0.1, 10.0],
     'C_O_ratio': [0.1, 2.0]
 }
-optimizer = 'multinest'
+optimizer = 'multinest'  # if confirmed installed/working - otherwise 'nestle'
 ```
 
 Note: both `fit_params`/`bounds` above are optional - if omitted, `chemistry_type='equilibrium'` alone auto-generates this exact `fit_params` list and reasonable bounds. Seed the starting point via the tool's `metallicity`/`co_ratio` arguments (plain floats), which are distinct from the `C_O_ratio` fit-parameter name above.
