@@ -13,6 +13,7 @@ import matplotlib.pyplot as plt
 from taurex.data.spectrum.observed import ObservedSpectrum
 from taurex.optimizer.nestle import NestleOptimizer
 from taurex.optimizer.multinest import MultiNestOptimizer
+from taurex.output.hdf5 import HDF5Output
 import os
 import sys
 from contextlib import redirect_stdout
@@ -30,8 +31,7 @@ from orchestral.tools.base.tool import BaseTool
 from orchestral.tools.base.field_utils import RuntimeField, StateField
 
 
-# Fixed typical mixing ratios, used as initial/seed values when the user names molecules to fit
-# without giving exact starting abundances (so the agent isn't inventing numbers).
+# Fixed typical mixing ratios, used as initial/seed values when the user names molecules to fit without giving exact starting abundances (so the agent isn't inventing numbers).
 DEFAULT_MOLECULE_ABUNDANCES = {
     'H2O': 0.02,
     'CH4': 0.001,
@@ -55,8 +55,7 @@ def resolve_free_gas_list(molecules=None, molecular_abundances=None):
     """
     Resolve which gases (and initial/seed mixing ratios) to fit for chemistry_type='free'.
 
-    Precedence: explicit molecular_abundances > named molecules (looked up in the fixed
-    default table) > fixed basic model (5 default molecules).
+    Precedence: explicit molecular_abundances > named molecules (looked up in the fixed default table) > fixed basic model (5 default molecules).
     """
     if molecular_abundances is not None:
         return list(molecular_abundances.items())
@@ -73,8 +72,7 @@ def resolve_free_gas_list(molecules=None, molecular_abundances=None):
 
 
 def default_fit_params_for_chemistry(chemistry_type, molecules=None, molecular_abundances=None):
-    """Auto-generate a fit_params list from the chemistry configuration, when the user/agent
-    doesn't supply fit_params explicitly."""
+    """Auto-generate a fit_params list from the chemistry configuration, when the user/agent doesn't supply fit_params explicitly."""
     if chemistry_type == "equilibrium":
         return ["planet_radius", "T", "metallicity", "C_O_ratio"]
     gas_list = resolve_free_gas_list(molecules, molecular_abundances)
@@ -95,10 +93,15 @@ class SimulateTaurexRetrieval(BaseTool):
     - Or ask user for their file path
 
     **IMPORTANT - Optimizer Selection**:
-    - Preference order: 'multinest' if it's confirmed installed and working on this machine (check first, e.g. `python -c "import pymultinest"` via RunCommandTool, or note if a prior retrieval already failed with a missing-module/library error) - it's the exoplanet community's publication standard and faster than nestle. 
-    Otherwise 'nestle' (the default here - pure Python, always works).
+    - Preference order: 'multinest' if it's confirmed installed and working on this machine (check first, e.g. `python -c "import pymultinest"` via RunCommandTool, or note if a prior retrieval already failed with a missing-module/library error), it's the exoplanet community's publication standard and faster than nestle. 
+    Otherwise 'nestle' (pure Python, always works, but slower).
     - Only use optimizer="ultranest" if the user explicitly asks for it.
     - Read skills/retrieval_best_practices.md for detailed guidance
+
+    **Optimizer tuning (stopping criteria / speed vs. thoroughness)**:
+    - `nestle_tol`/`multinest_evidence_tolerance`: the evidence-based stopping criterion for the respective optimizer, lower = more thorough/slower, higher = stops sooner/faster. Both default to 0.5 (each optimizer's own default). Only one applies depending on `optimizer`.
+    - `nestle_method`: 'multi' (default, handles multimodal posteriors) vs 'single'/'mcmc'.
+    - `multinest_sampling_efficiency`, `multinest_constant_efficiency_mode`, `multinest_search_multi_modes`, `multinest_importance_sampling`, `multinest_max_iterations`: further multinest-specific speed/thoroughness arguments, see each field's own description, or skills/retrieval_best_practices.md for a full explanation of what each one trades off.
 
     **Observation file format**: 3-4 column text file:
     - Column 1: wavelength in microns
@@ -106,38 +109,66 @@ class SimulateTaurexRetrieval(BaseTool):
     - Column 3: error on transit depth
     - Column 4 (optional): wavelength bin width
 
-    **Chemistry configuration** - same flexibility as the forward model tools:
-    - `chemistry_type='free'` (default): fits molecule mixing ratios via `molecules` (names only,
-      seeded from a fixed lookup table) or `molecular_abundances` (exact initial values), or the
-      fixed basic 5-molecule set if neither is given.
-    - `chemistry_type='equilibrium'`: fits metallicity and C/O ratio via ACEChemistry instead -
-      only use this if the user explicitly asks for equilibrium/ACE chemistry.
-    - `fit_params`/`bounds` remain full override escape hatches, but are now optional - if not
-      given, they're auto-generated from the chemistry configuration above.
+    **Chemistry configuration** same flexibility as the forward model tools:
+    - `chemistry_type='free'` (default): fits molecule mixing ratios via `molecules` (names only, seeded from a fixed lookup table) or `molecular_abundances` (exact initial values), or the fixed basic 5-molecule set if neither is given.
+    - `chemistry_type='equilibrium'`: fits metallicity and C/O ratio via ACEChemistry instead, only use this if the user explicitly asks for equilibrium/ACE chemistry.
+    - `fit_params`/`bounds` remain full override escape hatches, but are now optional - if not given, they're auto-generated from the chemistry configuration above.
     """
 
     # Required parameters
     observation_path: str = RuntimeField(
         default="",
-        description="Path to the observed spectrum file (relative to base_directory). REQUIRED - you must provide this path."
+        description="Path to the observed spectrum file (relative to base_directory). REQUIRED you must provide this path."
     )
     fit_params: list | str = RuntimeField(
         default="",
-        description="List of parameters to fit during retrieval. Can be a Python list or a string representation of a list. Example: ['planet_radius', 'T', 'H2O', 'CH4', 'CO2', 'CO', 'NH3']. Optional - if left as an empty string, auto-generated as ['planet_radius', 'T'] + the resolved molecule list (or ['planet_radius', 'T', 'metallicity', 'C_O_ratio'] for chemistry_type='equilibrium')."
+        description="List of parameters to fit during retrieval. Can be a Python list or a string representation of a list. Example: ['planet_radius', 'T', 'H2O', 'CH4', 'CO2', 'CO', 'NH3']. Optional, if left as an empty string, auto-generated as ['planet_radius', 'T'] + the resolved molecule list (or ['planet_radius', 'T', 'metallicity', 'C_O_ratio'] for chemistry_type='equilibrium')."
     )
     bounds: dict | str = RuntimeField(
         default="",
-        description="Dictionary specifying bounds for each fit parameter with [low, high]. Can be a Python dict or string representation. Example: {'planet_radius': [0.5, 2.0], 'T': [1000, 2000], 'H2O': [1e-12, 1e-2]} or \"{'planet_radius': [0.5, 2.0], 'T': [1000, 2000]}\". Optional - if left as an empty string, auto-generated."
+        description="Dictionary specifying bounds for each fit parameter with [low, high]. Can be a Python dict or string representation. Example: {'planet_radius': [0.5, 2.0], 'T': [1000, 2000], 'H2O': [1e-12, 1e-2]} or \"{'planet_radius': [0.5, 2.0], 'T': [1000, 2000]}\". Optional, if left as an empty string, auto-generated."
     )
 
     # Optional parameters with defaults
     optimizer: str = RuntimeField(
-        default="nestle",
-        description="Optimizer to use for retrieval ('nestle', 'multinest', or 'ultranest'). Prefer 'multinest' if it's confirmed installed and working on this machine (faster, publication standard) - otherwise 'nestle' (this default, always works). Only use 'ultranest' if the user explicitly asks for it."
+        default="multinest",
+        description="Optimizer to use for retrieval ('multinest', 'nestle', or 'ultranest'). Prefer 'multinest' if it's confirmed installed and working on this machine (faster) otherwise 'nestle' (always works but slower). Only use 'ultranest' if the user explicitly asks for it."
     )
     num_live_points: int = RuntimeField(
         default=100,
         description="Number of live points for nested sampling. Controls accuracy vs speed trade-off. Minimum: 50 (low quality), 100 (standard quality), 200 (high quality, maximum). For production science results, use 100-200."
+    )
+    nestle_tol: float = RuntimeField(
+        default=0.5,
+        description="Only used when optimizer='nestle'. Evidence-based stopping tolerance: the run stops once the estimated remaining evidence contribution drops below this. Lower = more thorough/slower (e.g. 0.1), higher = stops sooner/faster but less precise (e.g. 1.0). Default 0.5 matches Nestle's own default."
+    )
+    nestle_method: str = RuntimeField(
+        default="multi",
+        description="Only used when optimizer='nestle'. Nestle's sampling method: 'multi' (default, MultiNest-style ellipsoidal decomposition, handles multimodal posteriors, use this unless you have a reason not to), 'single' (single bounding ellipsoid: faster per-iteration but struggles with multimodal/curved posteriors), or 'mcmc' (Metropolis random walk: slower, rarely needed)."
+    )
+    multinest_evidence_tolerance: float = RuntimeField(
+        default=0.5,
+        description="Only used when optimizer='multinest'. Evidence-based stopping tolerance, the run stops once the estimated remaining log-evidence contribution drops below this. Lower = more thorough/slower (e.g. 0.1), higher = stops sooner/faster but less precise (e.g. 1.0). Default 0.5 is MultiNest's own default and standard for exoplanet retrievals."
+    )
+    multinest_sampling_efficiency: str = RuntimeField(
+        default="parameter",
+        description="Only used when optimizer='multinest'. MultiNest's 'sampling_efficiency': 'parameter' (default, tuned for accurate posteriors/parameter estimation). 'model' (tuned for accurate Bayesian evidence estimates instead of posteriors) is standard in the underlying pymultinest library and the value passes through unvalidated, but only 'parameter' is confirmed/type-hinted by TauREx's own wrapper. only try 'model' if the user specifically needs evidence-based model comparison, and verify the run behaves as expected."
+    )
+    multinest_constant_efficiency_mode: bool = RuntimeField(
+        default=False,
+        description="Only used when optimizer='multinest'. If True, trades some sampling accuracy/reliability for significantly faster runtime (MultiNest's 'constant_efficiency_mode'), useful for quick tests, not recommended for final science results."
+    )
+    multinest_search_multi_modes: bool = RuntimeField(
+        default=True,
+        description="Only used when optimizer='multinest'. Whether to search for and separately characterize multiple distinct posterior modes. True (default) is more thorough/robust for degenerate or multimodal parameter spaces at some extra cost; set False for a simpler/faster run if the posterior is expected to be unimodal."
+    )
+    multinest_importance_sampling: bool = RuntimeField(
+        default=False,
+        description="Only used when optimizer='multinest'. Whether to use MultiNest's importance nested sampling variant ('importance_sampling') for more efficient evidence estimation. Off by default to match taurex behavior; only enable if the user specifically asks for it."
+    )
+    multinest_max_iterations: int = RuntimeField(
+        default=0,
+        description="Only used when optimizer='multinest'. Hard cap on the number of iterations (MultiNest's 'max_iterations'): 0 (default) means no cap, run until the evidence_tolerance stopping criterion is met naturally. Set a positive number to bound the worst-case runtime, at the risk of stopping before full convergence."
     )
     star_radius: float = RuntimeField(
         default=1.0,
@@ -161,7 +192,7 @@ class SimulateTaurexRetrieval(BaseTool):
     )
     atm_max_pressure: float = RuntimeField(
         default=1e6,
-        description="Maximum atmospheric pressure in Pa. Standard value is 1e6 Pa."
+        description="Maximum atmospheric pressure in Pa. IMPORTANT: TauREx works in Pa, NOT bars! Standard value is 1e6 Pa."
     )
     nlayers: int = RuntimeField(
         default=100,
@@ -169,7 +200,7 @@ class SimulateTaurexRetrieval(BaseTool):
     )
     molecules: list[str] | str = RuntimeField(
         default="",
-        description="List of molecule names to fit, e.g. ['H2O', 'CH4']. Each gets an initial/seed abundance from a fixed lookup table before fitting - use this when the user names specific molecules without giving exact starting values. Ignored if molecular_abundances is provided. Not used in 'equilibrium' chemistry_type. Leave as an empty string if not specifying molecules."
+        description="List of molecule names to fit, e.g. ['H2O', 'CH4']. Each gets an initial/seed abundance from a fixed lookup table before fitting. use this when the user names specific molecules without giving exact starting values. Ignored if molecular_abundances is provided. Not used in 'equilibrium' chemistry_type. Leave as an empty string if not specifying molecules."
     )
     molecular_abundances: dict | str = RuntimeField(
         default="",
@@ -177,7 +208,7 @@ class SimulateTaurexRetrieval(BaseTool):
     )
     chemistry_type: str = RuntimeField(
         default="free",
-        description="'free' (default) fits molecule mixing ratios via 'molecules'/'molecular_abundances' (or the basic 5-molecule set if neither given). 'equilibrium' instead fits metallicity and C/O ratio via ACEChemistry thermochemical equilibrium - only set this if the user explicitly asks for equilibrium/ACE chemistry retrieval."
+        description="'free' (default) fits molecule mixing ratios via 'molecules'/'molecular_abundances' (or the basic 5-molecule set if neither given). 'equilibrium' instead fits metallicity and C/O ratio via ACEChemistry thermochemical equilibrium, only set this if the user explicitly asks for equilibrium/ACE chemistry retrieval."
     )
     metallicity: float = RuntimeField(
         default=1.0,
@@ -285,8 +316,7 @@ class SimulateTaurexRetrieval(BaseTool):
             elif param == 'C_O_ratio':
                 bounds[param] = [0.1, 2.0]
 
-            # Molecules - any other fit param is assumed to be a molecule mixing ratio,
-            # since 'molecules'/'molecular_abundances' now allow arbitrary species names
+            # Molecules. any other fit param is assumed to be a molecule mixing ratio, since 'molecules'/'molecular_abundances' now allow arbitrary species names
             else:
                 bounds[param] = [1e-12, 1e-2]
 
@@ -372,6 +402,14 @@ class SimulateTaurexRetrieval(BaseTool):
             bounds=bounds, #IMPORTANT, bounds MUST be provided
             optimizer=self.optimizer,
             num_live_points=self.num_live_points,
+            nestle_tol=self.nestle_tol,
+            nestle_method=self.nestle_method,
+            multinest_evidence_tolerance=self.multinest_evidence_tolerance,
+            multinest_sampling_efficiency=self.multinest_sampling_efficiency,
+            multinest_constant_efficiency_mode=self.multinest_constant_efficiency_mode,
+            multinest_search_multi_modes=self.multinest_search_multi_modes,
+            multinest_importance_sampling=self.multinest_importance_sampling,
+            multinest_max_iterations=self.multinest_max_iterations,
             star_radius=self.star_radius,
             planet_radius=self.planet_radius,
             planet_mass=self.planet_mass,
@@ -395,6 +433,8 @@ class SimulateTaurexRetrieval(BaseTool):
         for param, value in zip(fit_params, result['best_parameters']):
             output += f"  - {param}: {value}\n"
         output += f"\nLog-likelihood: {result['best_value']}\n\n"
+        hdf5_rel_path = os.path.relpath(result['outputs']['hdf5'], self.base_directory)
+        output += f"Full results (model setup, posterior, per-contribution spectra) saved to: {hdf5_rel_path}\n\n"
         output += f"Output files (in workspace):\n"
         for key, path in result['outputs'].items():
             # Show relative path to the agent
@@ -410,6 +450,14 @@ def run_taurex_retrieval(
     bounds=None,
     optimizer="nestle",
     num_live_points=100, #keep the recommended value of 100 if nothing is specified by the user
+    nestle_tol=0.5,
+    nestle_method="multi",
+    multinest_evidence_tolerance=0.5,
+    multinest_sampling_efficiency="parameter",
+    multinest_constant_efficiency_mode=False,
+    multinest_search_multi_modes=True,
+    multinest_importance_sampling=False,
+    multinest_max_iterations=0,
     # to build a model
     star_radius=1.0,  # solar radii
     star_temp=5500.0,  # Kelvin
@@ -431,19 +479,18 @@ def run_taurex_retrieval(
     Function to run a TauREx retrieval on an observed spectrum data.
 
     Chemistry configuration mirrors the forward model tools:
-    - chemistry_type='free' (default) fits molecule mixing ratios, chosen by (in this order):
-      molecular_abundances (exact initial values) > molecules (names only, seeded from a fixed
-      lookup table) > the fixed basic 5-molecule set (H2O, CH4, CO2, CO, NH3) if neither is given.
-    - chemistry_type='equilibrium' fits metallicity and C/O ratio via ACEChemistry instead, seeded
-      from the metallicity/co_ratio arguments; molecules/molecular_abundances are ignored.
+    - chemistry_type='free' (default) fits molecule mixing ratios, chosen by (in this order): molecular_abundances (exact initial values) > molecules (names only, seeded from a fixed lookup table) > the fixed basic 5-molecule set (H2O, CH4, CO2, CO, NH3) if neither is given.
+    - chemistry_type='equilibrium' fits metallicity and C/O ratio via ACEChemistry instead, seeded from the metallicity/co_ratio arguments; molecules/molecular_abundances are ignored.
 
     observation_path : path to the observed spectrum file (e.g., 'path/to/test_data.dat'), the file should contain three or four columns: wavelength (microns), spectrum (transit depth or flux), vertical error on the transit depth (same units as spectrum), and width of the bins (optional).
-    optimizer : 'nestle' (default, pure Python, always works). Prefer 'multinest' if it's confirmed installed and working on this machine (faster, publication standard). Only use 'ultranest' if the user explicitly asks for it.
+    optimizer : 'multinest' if it's confirmed installed and working on this machine (faster, publication standard). Prefer 'nestle' if multinest not installed (pure Python, always works but slower). Only use 'ultranest' if the user explicitly asks for it.
+    nestle_tol / multinest_evidence_tolerance : evidence-based stopping tolerance for the respective optimizer (only the one matching `optimizer` is used). Lower is more thorough/slower, higher stops sooner/faster. Both default to 0.5.
+    nestle_method : Nestle's sampling method: 'multi' (default), 'single', or 'mcmc'.
+    multinest_sampling_efficiency / multinest_constant_efficiency_mode / multinest_search_multi_modes / multinest_importance_sampling / multinest_max_iterations : further MultiNest-specific speed/thoroughness knobs, see skills/retrieval_best_practices.md.
     fit_params : which parameters to fit. If not given, auto-generated from the chemistry configuration: ['planet_radius', 'T'] + the resolved molecule list, or ['planet_radius', 'T', 'metallicity', 'C_O_ratio'] for chemistry_type='equilibrium'.
     bounds : dict[str, [low, high]], the bounds for each fitted parameter. The range should be fairly narrow to help the optimizer converge quickly, but not too narrow to avoid cutting off valid solutions. It should be physically motivated.
 
-    This function requires opacity files to be properly set via set_opacity_path(). It also requires the base parameters of the planet and star to build a model: star_radius (solar radii), star_temp (Kelvin), planet_radius (Jupiter radii), planet_mass (Jupiter masses), planet_temp (Kelvin).
-    It also needs the pressure range for the atmosphere to be set to [1e-1, 1e6] Pa. It could be modified only if the user specifically asks for it.
+    This function requires opacity files to be properly set via set_opacity_path(). It also requires the base parameters of the planet and star to build a model: star_radius (solar radii), star_temp (Kelvin), planet_radius (Jupiter radii), planet_mass (Jupiter masses), planet_temp (Kelvin). It also needs the pressure range for the atmosphere to be set to [1e-1, 1e6] Pa. It could be modified only if the user specifically asks for it.
     Output basename and output path can be specified to save the output files in a specific directory with a specific base name. The default directory is the current working directory.
     """
 
@@ -476,8 +523,7 @@ def run_taurex_retrieval(
         elif p == 'C_O_ratio':
             adaptive_bounds[p] = [0.1, 2.0]
 
-        # any other fit param is assumed to be a molecule mixing ratio, since
-        # molecules/molecular_abundances now allow arbitrary species names
+        # any other fit param is assumed to be a molecule mixing ratio, since molecules/molecular_abundances now allow arbitrary species names
         else:
             adaptive_bounds[p] = [1e-12, 1e-2]
 
@@ -507,9 +553,7 @@ def run_taurex_retrieval(
             )
         stream(f"Setting up equilibrium chemistry (ACE), seed metallicity={metallicity}, C/O={co_ratio}...\n")
         from acepython.taurex3 import ACEChemistry
-        # ACEChemistry's constructor takes ratio kwargs named '{Element}_ratio' (e.g. C_ratio for
-        # the default ratio_element='O') - it does NOT take a 'co_ratio' kwarg; that would be
-        # silently swallowed by its **kwargs and have no effect.
+        # ACEChemistry's constructor takes ratio kwargs named '{Element}_ratio' (e.g. C_ratio for the default ratio_element='O'), it does NOT take a 'co_ratio' kwarg; that would be silently swallowed by its **kwargs and have no effect.
         chemistry = ACEChemistry(metallicity=metallicity, C_ratio=co_ratio)
 
     elif chemistry_type == "free":
@@ -552,15 +596,32 @@ def run_taurex_retrieval(
     stream(f"Setting up {optimizer} optimizer...\n")
     stream(f"Using {num_live_points} live points (lower = faster but less accurate)\n")
     if optimizer == "nestle":
-        opt = NestleOptimizer(num_live_points=num_live_points)
+        stream(f"  tol={nestle_tol}, method={nestle_method!r}\n")
+        opt = NestleOptimizer(
+            num_live_points=num_live_points,
+            tol=nestle_tol,
+            method=nestle_method,
+        )
 
     elif optimizer == "multinest":
+        stream(
+            f"  evidence_tolerance={multinest_evidence_tolerance}, "
+            f"sampling_efficiency={multinest_sampling_efficiency!r}, "
+            f"constant_efficiency_mode={multinest_constant_efficiency_mode}, "
+            f"search_multi_modes={multinest_search_multi_modes}, "
+            f"importance_sampling={multinest_importance_sampling}, "
+            f"max_iterations={multinest_max_iterations}\n"
+        )
         opt = MultiNestOptimizer(
             num_live_points=num_live_points,
             multi_nest_path="./multinest",
-            search_multi_modes=True,
+            evidence_tolerance=multinest_evidence_tolerance,
+            sampling_efficiency=multinest_sampling_efficiency,
+            constant_efficiency_mode=multinest_constant_efficiency_mode,
+            search_multi_modes=multinest_search_multi_modes,
+            importance_sampling=multinest_importance_sampling,
+            max_iterations=multinest_max_iterations,
             resume=False,
-            importance_sampling=False
         )
 
     elif optimizer == "ultranest":
@@ -712,6 +773,7 @@ def run_taurex_retrieval(
     sp_npy = f"{output_basename}_spectrum.npy"
     samples_npy = f"{output_basename}_samples.npy"
     weights_npy = f"{output_basename}_weights.npy"
+    output_h5 = f"{output_basename}.h5"
 
     if output_path is not None:
         fit_png = os.path.join(output_path, fit_png)
@@ -720,6 +782,7 @@ def run_taurex_retrieval(
         sp_npy = os.path.join(output_path, sp_npy)
         samples_npy = os.path.join(output_path, samples_npy)
         weights_npy = os.path.join(output_path, weights_npy)
+        output_h5 = os.path.join(output_path, output_h5)
 
     # Plot observed vs binned best-fit model
     stream("Generating fit plot...\n")
@@ -774,6 +837,23 @@ def run_taurex_retrieval(
     plt.close()
     stream(f"Saved corner plot to {corner_png}\n")
 
+    # Save the full retrieval results (model setup, best-fit solution, posterior, profiles) to a single HDF5 file. The same format/mechanism TauREx's own CLI produces via`taurex -o output.h5 --retrieval` (model.write() + optimizer.write(), see taurex.py's main()).
+    stream("Saving full results to HDF5...\n")
+    with HDF5Output(output_h5) as o:
+        model.write(o)
+
+    with HDF5Output(output_h5, append=True) as o:
+        out = o.create_group("Output")
+        profiles = model.generate_profiles()
+        out.store_dictionary(solution, group_name="Solutions")
+        priors = {
+            "Profiles": profiles,
+            "Spectra": {"wlgrid": model_wl, "spectrum": model_binned},
+        }
+        out.store_dictionary(priors, group_name="Priors")
+        opt.write(o)
+    stream(f"Saved full results to {output_h5}\n")
+
     stream("\nRetrieval complete!\n")
 
     return {
@@ -784,6 +864,7 @@ def run_taurex_retrieval(
         # 'fit_params': fit_params,
         # 'bounds': bounds,
         'outputs': {
+            'hdf5': output_h5,
             'fit_png': fit_png,
             'corner_png': corner_png,
             'wavelength_npy': wl_npy,
