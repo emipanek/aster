@@ -138,6 +138,39 @@ Output files in `workspace/`:
 
 **Important**: The forward model outputs spectra at full line-list resolution (~100k points). For visualization purposes, these should be binned to observational resolution. Unbinned spectra are too noisy to display meaningfully. Use numpy to bin wavelength and spectrum arrays before custom plotting.
 
+### Spectrum Binning
+
+`BinSpectrum` rebins a high-resolution spectrum onto a lower-resolution or instrument wavelength grid. Output is TauREx 4-column `.dat` (wavelength, depth, error, bin_width) and can be passed directly to `SimulateTaurexRetrieval`.
+
+**Binning targets** (set exactly one):
+- `instrument` — predefined mode key, e.g. `'jwst_nirspec_prism'`, `'hst_wfc3_g141'`. Use `instrument='list'` to see all modes (JWST, HST, Ariel, ELT/VLT).
+- `resolving_power` — custom R (e.g. `50`, `100`)
+- `n_bins` — custom number of log-spaced bins (`>= 2`)
+
+**Other parameters**:
+- `spectrum_path` — input file relative to `base_directory`. Supports TauREx 3/4-col `.dat`, 2-col text, Exo_Skryer 4-col, and `.npy` pairs (`*_wavelength.npy` + `*_spectrum.npy`, including TauREx FM `*_fm_wavelength.npy`)
+- `wl_min` / `wl_max` — optional wavelength limits for custom grids
+- `method` — `'custom'` (default, NumPy-only flux-conserving) or `'spectres'`
+- `constant_error` — **only when the user explicitly asks**. Attach a uniform uncertainty (e.g. `20e-6` for 20 ppm). Do not invent or auto-add errors.
+- `output_filename` — output subfolder / file prefix (default `'binned_spectrum'`)
+
+**Example**:
+```python
+# After a forward model that wrote planet_fm_wavelength.npy / planet_fm_spectrum.npy
+BinSpectrum(
+    spectrum_path='planet_fm_wavelength.npy',
+    instrument='jwst_nirspec_prism',
+    output_filename='planet_binned',
+)
+# Only if the user asks for constant errors:
+# BinSpectrum(..., constant_error=20e-6)
+```
+
+**Outputs** (in `{output_filename}/`):
+- `{output_filename}_binned.dat` — TauREx format, retrieval-ready
+- `{output_filename}_wavelength.npy`, `{output_filename}_spectrum.npy`
+- `{output_filename}_comparison.png` — original vs binned + residuals
+
 ### Atmospheric Retrieval
 
 `SimulateTaurexRetrieval` fits atmospheric parameters to observed spectra using nested sampling.
@@ -203,6 +236,13 @@ The `exoarchive.py` module provides access to NASA Exoplanet Archive data:
 2. Set TauREx paths using absolute paths
 3. Call `RunTaurexTransmissionModelTool` with planet/star parameters
 4. Output saved to `workspace/{filename}_spectrum.png`
+5. Optionally bin with `BinSpectrum` for visualization or as synthetic retrieval input
+
+### Binning a Spectrum
+
+1. Obtain a high-res spectrum (forward model `.npy` pair, or observed `.dat`)
+2. Call `BinSpectrum` with exactly one of `instrument`, `resolving_power`, or `n_bins`
+3. Do **not** pass `constant_error` unless the user explicitly requests a constant uncertainty
 
 ### Running a Retrieval
 

@@ -29,6 +29,7 @@ from aster_toolkit import (
     DownloadDataset,
     FindExoplanetsByCondition,
     RunFastChemEquilibriumTool,
+    BinSpectrum,
 )
 
 base_directory = 'workspace'
@@ -60,6 +61,9 @@ tools = [
 
     # Chemistry tools
     RunFastChemEquilibriumTool(base_directory=base_directory),
+
+    # Binning tools
+    BinSpectrum(base_directory=base_directory),
 ]
 
 hooks = [DangerousCommandHook()]

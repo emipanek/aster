@@ -17,3 +17,4 @@ pyfastchem
 fastapi
 rich
 'uvicorn[standard]'
+spectres
