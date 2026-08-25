@@ -14,7 +14,7 @@ ASTER includes specialized skill files in `workspace/skills/` that contain detai
 - **corner_plots.md**: How to create publication-quality corner plots from retrieval results
 - **retrieval_best_practices.md**: Parameter bounds guidance, optimizer selection, and retrieval strategies for different use cases
 - **cluster_setup.md**: SSH/SLURM cluster setup (Duo 2FA bypass via key-based auth), `.env` configuration, and the GetClusterPaths/WriteSlurmScript/SubmitSlurmJob/CheckSlurmJob/UploadClusterFile/FetchClusterFile workflow
-- **fastchem_setup.md**: FastChem equilibrium-chemistry tool - input parameters, single-point vs. profile output, and troubleshooting
+- **fastchem_setup.md**: FastChem equilibrium-chemistry tool: input parameters, single-point vs. profile output, and troubleshooting
 
 **Important**: These skill files are NOT loaded into the system prompt. When you need information about these topics, use the ReadFileTool to read the relevant skill file from `workspace/skills/`.
 
@@ -69,10 +69,10 @@ Tools are organized in the `aster_toolkit/` package with clear separation of con
 - `exoarchive.py` - `DownloadDataset` for downloading and processing spectra from NASA archive
 
 **Cluster / SLURM** (`aster_toolkit/cluster/`):
-- `slurm_tools.py` - `WriteSlurmScript` (render an sbatch script; defaults `--qos=main`; supports MPI jobs via `ntasks` plus either `mpi_command` (simple case, auto-wrapped as `mpirun -np "${SLURM_NTASKS}" ...`) or `mpi_rank0_command`/`mpi_other_ranks_command`/`mpi_rank_env_var` (generates a rank-conditional `mpirun ... bash -c 'if [ "$RANK_VAR" = 0 ]; ... else ...; fi'` wrapper - use this whenever the parallelized program writes a shared output file, e.g. every MultiNest/`taurex --retrieval` job, since otherwise every rank races to write the same file); also `mpi_module`, `conda_env` (non-interactive-safe conda activation) + `conda_export_ld_library_path` (needed for `pymultinest`'s `libmultinest.so`), and `mem_per_cpu` as an alternative to `mem`), `SubmitSlurmJob` (upload + `sbatch` over SSH), `CheckSlurmJob` (`squeue`/`sacct` status)
-- `remote_ops.py` - `GetClusterPaths` (returns the configured `CLUSTER_REMOTE_WORKDIR`/`CLUSTER_PARFILE_DIR`/`CLUSTER_DATA_DIR`/`CLUSTER_HDF5_DIR`/`CLUSTER_XSEC_PATH`/`CLUSTER_CIA_PATH` values - call this before referencing any cluster path, since these are server-side env vars the agent otherwise can't see), `UploadClusterFile` (SFTP a file to the cluster without submitting a job), `FetchClusterFile` (SFTP a file, e.g. a finished retrieval's output `.h5`, back to the local workspace)
+- `slurm_tools.py` - `WriteSlurmScript` (render an sbatch script; defaults `--qos=main`; supports MPI jobs via `ntasks` plus either `mpi_command` (simple case, auto-wrapped as `mpirun -np "${SLURM_NTASKS}" ...`) or `mpi_rank0_command`/`mpi_other_ranks_command`/`mpi_rank_env_var` (generates a rank-conditional `mpirun ... bash -c 'if [ "$RANK_VAR" = 0 ]; ... else ...; fi'` wrapper, use this whenever the parallelized program writes a shared output file, e.g. every MultiNest/`taurex --retrieval` job, since otherwise every rank races to write the same file); also `mpi_module`, `conda_env` (non-interactive-safe conda activation) + `conda_export_ld_library_path` (needed for `pymultinest`'s `libmultinest.so`), and `mem_per_cpu` as an alternative to `mem`), `SubmitSlurmJob` (upload + `sbatch` over SSH), `CheckSlurmJob` (`squeue`/`sacct` status)
+- `remote_ops.py` - `GetClusterPaths` (returns the configured `CLUSTER_REMOTE_WORKDIR`/`CLUSTER_PARFILE_DIR`/`CLUSTER_DATA_DIR`/`CLUSTER_HDF5_DIR`/`CLUSTER_XSEC_PATH`/`CLUSTER_CIA_PATH` values. Call this before referencing any cluster path, since these are server-side env vars the agent otherwise can't see), `UploadClusterFile` (SFTP a file to the cluster without submitting a job), `FetchClusterFile` (SFTP a file, e.g. a finished retrieval's output `.h5`, back to the local workspace)
 - `ssh_client.py` - `get_ssh_client()`, connects using key-based auth from `.env` (`CLUSTER_SSH_HOST`/`CLUSTER_SSH_USER`/`CLUSTER_SSH_KEY_PATH`/`CLUSTER_SSH_PORT`/`CLUSTER_REMOTE_WORKDIR`/`CLUSTER_XSEC_PATH`/`CLUSTER_CIA_PATH`)
-- Read `skills/cluster_setup.md` before using these tools - covers the one-time key setup needed to bypass the cluster's Duo 2FA and the required `.env` variables
+- Read `skills/cluster_setup.md` before using these tools, covers the one-time key setup needed to bypass the cluster's Duo 2FA and the required `.env` variables
 
 **Chemistry** (`aster_toolkit/chemistry/`):
 - `fastchem_tools.py` - `RunFastChemEquilibriumTool`, gas-phase chemical-equilibrium mixing ratios via FastChem (`pyfastchem`). Independent of TauREx, no opacity paths or planet/star model needed, just a temperature (and optionally pressure/metallicity/C-O ratio).
@@ -150,7 +150,7 @@ Output files in `workspace/`:
 - `observation_path` - **REQUIRED**. Path to 3-4 column spectrum file (wavelength μm, depth, error, [bin width]). Use exact path from DownloadDataset output or user-provided file.
 - `fit_params` - Parameters to fit. Can be passed as a list or string representation. **Optional** if not given, auto-generated from the chemistry configuration: `['planet_radius', 'T']` + the resolved molecule list, or `['planet_radius', 'T', 'metallicity', 'C_O_ratio']` for `chemistry_type='equilibrium'`.
 - `bounds` - Dict of `{param: [low, high]}` bounds. Can be passed as a dict or string representation. **Optional** if not provided, reasonable defaults are auto-generated.
-- `optimizer` - prefer `"multinest"` if `pymultinest` is confirmed installed and working (faster, publication standard) - otherwise `"nestle"` (default, pure Python, always works). Only use `"ultranest"` if the user explicitly asks for it.
+- `optimizer` - prefer `"multinest"` if `pymultinest` is confirmed installed and working (faster, publication standard) otherwise `"nestle"` (default, pure Python, always works). Only use `"ultranest"` if the user explicitly asks for it.
 
 **Important Notes**:
 - Pressure units in TauREx are **Pascals**, not bars (default range: 1e-1 to 1e6 Pa)
@@ -162,6 +162,7 @@ Output files in `workspace/`:
 - **Note the exact casing `C_O_ratio`** (not `co_ratio` or `c_o_ratio`) when it appears in `fit_params`/`bounds` - it must match TauREx's `ACEChemistry.fitting_parameters()` name exactly. The tool-facing `co_ratio` argument (a plain float, used to seed the initial value) is different from this internal fit-parameter name.
 
 **Outputs** (saved to `output_path` with `output_basename` prefix):
+- `*.h5` - **Full results in one HDF5 file** (model setup, best-fit solution, full posterior, per-layer profiles, per-contribution spectra) same structure TauREx's own CLI produces via `taurex -o output.h5 --retrieval`. This is the authoritative, complete output; the tool's final message always calls out its path explicitly.
 - `*_fit.png` - Observed vs best-fit comparison
 - `*_corner.png` - Posterior distributions
 - `*_samples.npy`, `*_weights.npy` - Full posterior samples
