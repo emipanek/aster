@@ -1,0 +1,63 @@
+name: aster
+version: 0.1.0
+description: Agentic Science Toolkit for Exoplanet Research.
+author: Emilie Panek
+license: MIT
+category: astro
+python_version: '3.12'
+keywords: [exoplanet, taurex, fastchem, spectroscopy, retrieval]
+tools:
+  - module: aster_toolkit.chemistry.fastchem_tools
+    name: RunFastChemEquilibriumTool
+    description: Predict gas-phase chemical-equilibrium mixing ratios for a 
+      planetary atmosphere using FastChem.
+  - module: aster_toolkit.data_acquisition.exoarchive
+    name: DownloadDataset
+    description: Download transit spectra from NASA Exoplanet Archive and 
+      reformat them.
+  - module: aster_toolkit.data_acquisition.exoarchive
+    name: FindExoplanetsByCondition
+    description: Query the NASA Exoplanet Archive using the TAP (Table Access 
+      Protocol) service to retrieve exoplanets or planetary systems that satisfy
+      user-defined conditions.
+  - module: aster_toolkit.data_acquisition.exoarchive
+    name: GetExoplanetParameters
+    description: Get exoplanet parameters from NASA Exoplanet Archive via TAP 
+      service.
+  - module: aster_toolkit.measurements.measurement_tools
+    name: ExoplanetArchiveQueryTool
+    description: Run raw ADQL against the archive, for questions the other tools
+      miss.
+  - module: aster_toolkit.measurements.measurement_tools
+    name: MeasurementDisagreementTool
+    description: Why do published measurements of this planet differ?
+  - module: aster_toolkit.measurements.measurement_tools
+    name: PublishedMeasurementsTool
+    description: Every published parameter set for one planet, one row per 
+      reference.
+  - module: aster_toolkit.measurements.measurement_tools
+    name: ResolvePlanetNameTool
+    description: Map a planet name as written in a paper onto the archive's 
+      spelling.
+  - module: aster_toolkit.taurex.corner_plot
+    name: PlotCornerPosteriors
+    description: Create a corner plot from TauREx retrieval posterior samples.
+  - module: aster_toolkit.taurex.forward_model
+    name: RunTaurexEmissionModelTool
+    description: Run a Taurex forward model with specified parameters and 
+      generate an emission spectrum plot.
+  - module: aster_toolkit.taurex.forward_model
+    name: RunTaurexTransmissionModelTool
+    description: Run a Taurex forward model with specified parameters and 
+      generate a transmission spectrum plot.
+  - module: aster_toolkit.taurex.parfile_tools
+    name: WriteTaurexParameterFile
+    description: Generate a TauREx CLI parameter (.par) file for a forward model
+      or retrieval job.
+  - module: aster_toolkit.taurex.retrieval
+    name: SimulateTaurexRetrieval
+    description: Run a TauREx atmospheric retrieval to fit model parameters to 
+      an observed transmission spectrum.
+  - module: aster_toolkit.taurex.set_paths
+    name: SetTaurexPaths
+    description: Set the paths for TauREx opacity and CIA files.
