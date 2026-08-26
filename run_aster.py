@@ -29,6 +29,10 @@ from aster_toolkit import (
     DownloadDataset,
     FindExoplanetsByCondition,
     RunFastChemEquilibriumTool,
+    ResolvePlanetNameTool,
+    PublishedMeasurementsTool,
+    MeasurementDisagreementTool,
+    ExoplanetArchiveQueryTool,
 )
 
 base_directory = 'workspace'
@@ -57,6 +61,12 @@ tools = [
     GetExoplanetParameters(),
     DownloadDataset(base_directory=base_directory),
     FindExoplanetsByCondition(base_directory=base_directory),
+
+    # Published-measurement comparison tools
+    ResolvePlanetNameTool(),
+    PublishedMeasurementsTool(),
+    MeasurementDisagreementTool(),
+    ExoplanetArchiveQueryTool(),
 
     # Chemistry tools
     RunFastChemEquilibriumTool(base_directory=base_directory),

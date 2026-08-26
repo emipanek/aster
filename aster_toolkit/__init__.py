@@ -9,6 +9,12 @@ from .taurex.retrieval import SimulateTaurexRetrieval
 from .taurex.parfile_tools import WriteTaurexParameterFile
 from .data_acquisition.exoarchive import GetExoplanetParameters, DownloadDataset, FindExoplanetsByCondition
 from .chemistry.fastchem_tools import RunFastChemEquilibriumTool
+from .measurements import (
+    ResolvePlanetNameTool,
+    PublishedMeasurementsTool,
+    MeasurementDisagreementTool,
+    ExoplanetArchiveQueryTool,
+)
 
 __all__ = [
     'RunTaurexTransmissionModelTool',
@@ -20,6 +26,10 @@ __all__ = [
     'DownloadDataset',
     'FindExoplanetsByCondition',
     'RunFastChemEquilibriumTool',
+    'ResolvePlanetNameTool',
+    'PublishedMeasurementsTool',
+    'MeasurementDisagreementTool',
+    'ExoplanetArchiveQueryTool',
 ]
 
 # from .taurex_tools import (
