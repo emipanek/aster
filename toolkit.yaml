@@ -29,6 +29,14 @@ tools:
     description: Run raw ADQL against the archive, for questions the other tools
       miss.
   - module: aster_toolkit.measurements.measurement_tools
+    name: ExplainDisagreementTool
+    description: Explain WHY two published values of a planet parameter
+      disagree, from the methods the papers themselves describe.
+  - module: aster_toolkit.measurements.measurement_tools
+    name: TransmissionSpectrumTool
+    description: Fetch a planet's published transmission spectrum from the
+      archive, depth-propagated, with per-point instrument and reference.
+  - module: aster_toolkit.measurements.measurement_tools
     name: MeasurementDisagreementTool
     description: Why do published measurements of this planet differ?
   - module: aster_toolkit.measurements.measurement_tools

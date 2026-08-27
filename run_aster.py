@@ -32,6 +32,8 @@ from aster_toolkit import (
     ResolvePlanetNameTool,
     PublishedMeasurementsTool,
     MeasurementDisagreementTool,
+    ExplainDisagreementTool,
+    TransmissionSpectrumTool,
     ExoplanetArchiveQueryTool,
 )
 
@@ -66,6 +68,8 @@ tools = [
     ResolvePlanetNameTool(),
     PublishedMeasurementsTool(),
     MeasurementDisagreementTool(),
+    ExplainDisagreementTool(),
+    TransmissionSpectrumTool(),
     ExoplanetArchiveQueryTool(),
 
     # Chemistry tools
