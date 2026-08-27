@@ -14,6 +14,8 @@ from .measurements import (
     ResolvePlanetNameTool,
     PublishedMeasurementsTool,
     MeasurementDisagreementTool,
+    ExplainDisagreementTool,
+    TransmissionSpectrumTool,
     ExoplanetArchiveQueryTool,
 )
 
@@ -31,6 +33,8 @@ __all__ = [
     'ResolvePlanetNameTool',
     'PublishedMeasurementsTool',
     'MeasurementDisagreementTool',
+    'ExplainDisagreementTool',
+    'TransmissionSpectrumTool',
     'ExoplanetArchiveQueryTool',
 ]
 

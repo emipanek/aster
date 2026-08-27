@@ -24,6 +24,8 @@ from orchestral.tools.base.field_utils import RuntimeField
 
 from .archive_interface import ArchiveError, ExoplanetArchive
 from .disagreement import PARAMETERS, analyse, compare_parameter
+from .explain import explain_pair
+from .spectra import shape_transit_rows
 
 SCHEMA_VERSION = "exoplanet-1.0"
 
@@ -116,7 +118,9 @@ class MeasurementDisagreementTool(BaseTool):
     description: str = (
         "Explain how published measurements of a planet disagree: the spread "
         "of each parameter across references, whether uncertainties absorb "
-        "it, and an instrument breakdown from the spectroscopy tables."
+        "it, and an instrument breakdown from the spectroscopy tables. For "
+        "WHY a specific pair differs, follow up with "
+        "explain_measurement_disagreement."
     )
 
     planet_name: str = RuntimeField(description="Archive pl_name, e.g. 'HD 189733 b'")
@@ -157,6 +161,121 @@ class MeasurementDisagreementTool(BaseTool):
         if warnings:
             out["warnings"] = warnings
         return _ok(**out)
+
+
+class ExplainDisagreementTool(BaseTool):
+    """WHY do the two most discrepant published values differ?
+
+    ``measurement_disagreement`` finds and quantifies a disagreement; this
+    tool follows the two references of the worst-tension pair to their
+    papers (bibcode -> ADS link gateway -> arXiv abstract, keyless) and
+    reports what kind of analysis each side says it did, and how the two
+    differ. When the abstracts describe the same kind of analysis, it says
+    so and hands back the arXiv ids to read instead of guessing.
+    """
+
+    name: str = "explain_measurement_disagreement"
+    description: str = (
+        "Explain WHY two published values of a planet parameter disagree: "
+        "follow each reference to its paper and compare the methods the "
+        "papers themselves describe. Keyless; abstract-level."
+    )
+
+    planet_name: str = RuntimeField(description="Archive pl_name, e.g. 'HD 189733 b'")
+    parameter: Optional[str] = RuntimeField(
+        default=None,
+        description=("ps column to explain, e.g. 'pl_orbper'. Omit to pick "
+                     "the parameter with the worst tension automatically."))
+
+    def _run(self) -> str:
+        try:
+            rows = ExoplanetArchive().published_values(self.planet_name)
+        except ArchiveError as e:
+            return _err(str(e))
+        if not rows:
+            return _err(f"no rows in ps for '{self.planet_name}'",
+                        hint="Resolve the name first with resolve_planet_name.")
+
+        if self.parameter:
+            if self.parameter not in PARAMETERS:
+                return _err(f"unknown parameter '{self.parameter}'",
+                            known=sorted(PARAMETERS))
+            candidates = [compare_parameter(rows, self.parameter)]
+        else:
+            candidates = [compare_parameter(rows, p) for p in PARAMETERS]
+
+        contested = [c for c in candidates
+                     if c and c.get("max_tension_pair")]
+        if not contested:
+            return _err(
+                "no parameter has two values with quoted uncertainties, so "
+                "there is no tension pair to explain",
+                hint="published_measurements shows what the rows carry.")
+        worst = max(contested, key=lambda c: c["max_tension_sigma"] or 0)
+        pair = worst["max_tension_pair"]
+
+        explanation = explain_pair(pair["low"], pair["high"])
+        return _ok(
+            planet=self.planet_name,
+            parameter=worst["parameter"],
+            parameter_label=worst["label"],
+            unit=worst["unit"],
+            tension_sigma=worst["max_tension_sigma"],
+            explanation=explanation,
+        )
+
+
+class TransmissionSpectrumTool(BaseTool):
+    """Fetch a planet's published transmission spectrum from the archive.
+
+    Reads ``transitspec`` over keyless TAP — no Firefly clicking, no wget
+    lists — and returns wavelength-ordered points with the transit depth
+    already propagated from the quoted Rp/R* ratio, plus per-row facility,
+    instrument and reference. The per-instrument summary says who observed
+    this planet over which wavelength range before you read a single point.
+
+    The points feed a TauREx observed spectrum directly: wavelength_um,
+    depth ( = (Rp/R*)^2 ), depth_err, bin_um.
+    """
+
+    name: str = "transmission_spectrum"
+    description: str = (
+        "Fetch the published transmission spectrum of a planet from the "
+        "NASA Exoplanet Archive transitspec table: wavelength-resolved "
+        "transit depths with per-point instrument, facility and reference. "
+        "Keyless; ready for a TauREx observed-spectrum file."
+    )
+
+    planet_name: str = RuntimeField(description="Archive pl_name, e.g. 'HD 189733 b'")
+    instrument: Optional[str] = RuntimeField(
+        default=None,
+        description="Only points from this instrument (case-insensitive), e.g. 'IRAC'")
+    max_points: Optional[int] = RuntimeField(
+        default=500, description="Cap on returned points")
+
+    def _run(self) -> str:
+        try:
+            rows = ExoplanetArchive().transit_spectrum(self.planet_name)
+        except ArchiveError as e:
+            return _err(str(e))
+        if not rows:
+            return _err(
+                f"no transitspec rows for '{self.planet_name}'",
+                hint=("Resolve the name first with resolve_planet_name. The "
+                      "spectroscopy tables also lag the literature — a "
+                      "recently observed planet may simply not be in them."))
+
+        shaped = shape_transit_rows(rows, instrument=self.instrument)
+        if not shaped["n_points"]:
+            return _err(
+                f"transitspec has rows for '{self.planet_name}' but none "
+                f"match instrument '{self.instrument}'",
+                instruments_present=sorted(
+                    shape_transit_rows(rows)["instruments"]))
+        cap = max(1, int(self.max_points or 500))
+        truncated = shaped["n_points"] > cap
+        shaped["points"] = shaped["points"][:cap]
+        return _ok(planet=self.planet_name, truncated=truncated, **shaped)
 
 
 class ExoplanetArchiveQueryTool(BaseTool):

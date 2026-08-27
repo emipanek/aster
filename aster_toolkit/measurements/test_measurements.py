@@ -36,6 +36,10 @@ from aster_toolkit.measurements.archive_interface import (  # noqa: E402
 from aster_toolkit.measurements.disagreement import (  # noqa: E402
     analyse, compare_parameter, instrument_breakdown, tension_sigma,
 )
+from aster_toolkit.measurements.explain import (  # noqa: E402
+    arxiv_id_for_bibcode, arxiv_metadata, explain_pair, method_fingerprint,
+)
+from aster_toolkit.measurements.spectra import shape_transit_rows  # noqa: E402
 
 _P = _F = 0
 
@@ -267,6 +271,169 @@ def test_empty_and_missing() -> None:
           "empty analysis is empty, not an error")
 
 
+# ------------------------------------------------ explain: paper lookup
+class _HttpResp:
+    def __init__(self, status, headers=None, text=""):
+        self.status_code, self.headers, self.text = status, headers or {}, text
+
+
+class _StubHTTP:
+    """Canned responses keyed by substring of the requested URL."""
+
+    def __init__(self, routes):
+        self.routes, self.urls = routes, []
+
+    def get(self, url, **kw):
+        if kw.get("params"):
+            from urllib.parse import urlencode
+            url = f"{url}?{urlencode(kw['params'])}"
+        self.urls.append(url)
+        for frag, resp in self.routes.items():
+            if frag in url:
+                return resp
+        return _HttpResp(404)
+
+
+_ATOM_OK = (
+    "<?xml version='1.0'?>"
+    "<feed xmlns='http://www.w3.org/2005/Atom'><entry>"
+    "<title>ExoClock III: 450 new ephemerides</title>"
+    "<published>2022-09-20T00:00:00Z</published>"
+    "<summary>We monitor transit mid-times with ground-based telescopes "
+    "and TESS to maintain ephemerides.</summary>"
+    "</entry></feed>")
+
+
+def test_gateway_resolves_and_encodes() -> None:
+    stub = _StubHTTP({"link_gateway": _HttpResp(
+        302, {"Location": "https://arxiv.org/abs/2209.09673"})})
+    check(arxiv_id_for_bibcode("2023ApJS..265....4K", stub) == "2209.09673",
+          "302 Location yields the arXiv id")
+    arxiv_id_for_bibcode("2019A&A...625A.136S", stub)
+    check("%26" in stub.urls[-1] and "&" not in stub.urls[-1].split("/link_gateway/")[1],
+          "ampersand bibcodes are percent-encoded in the gateway path")
+    check(arxiv_id_for_bibcode("1990Nopaper.....X", _StubHTTP({})) is None,
+          "gateway 404 (no eprint) yields None, not a guess")
+
+
+def test_arxiv_metadata_parses_atom() -> None:
+    stub = _StubHTTP({"export.arxiv.org": _HttpResp(200, text=_ATOM_OK)})
+    meta = arxiv_metadata("2209.09673", stub)
+    check(meta is not None and meta["published"] == "2022-09-20",
+          "atom entry parsed: date")
+    check(meta is not None and "ephemerides" in meta["abstract"],
+          "atom entry parsed: abstract")
+    check(arxiv_metadata("junk", _StubHTTP({"export.arxiv.org": _HttpResp(
+        200, text="<feed xmlns='http://www.w3.org/2005/Atom'></feed>")})) is None,
+          "feed without an entry yields None")
+
+
+def test_method_fingerprint_families() -> None:
+    fp = method_fingerprint(
+        "We monitor transit mid-times with ground-based telescopes, "
+        "ExoClock and TESS over 12 years to maintain ephemerides.")
+    check("transit timing / ephemeris monitoring" in fp["methods"],
+          "ephemeris paper fingerprinted as timing")
+    check(fp["facilities"] == ["ExoClock", "TESS"],
+          "facilities detected as words")
+    check(fp["baseline_years"] == 12, "baseline span extracted")
+
+    fp2 = method_fingerprint(
+        "Empirical, self-consistent radii and masses using Gaia "
+        "parallaxes for a homogeneous catalog of transiting planets.")
+    check("astrometry / parallax" in fp2["methods"]
+          and "empirical / global re-analysis" in fp2["methods"],
+          "Gaia empirical paper fingerprinted as parallax + re-analysis")
+    check("transit timing / ephemeris monitoring" not in fp2["methods"],
+          "no timing family invented for the Gaia paper")
+
+
+def test_explain_pair_tells_methods_apart() -> None:
+    atom_gaia = _ATOM_OK.replace(
+        "ExoClock III: 450 new ephemerides", "Empirical radii with Gaia"
+        ).replace(
+        "We monitor transit mid-times with ground-based telescopes "
+        "and TESS to maintain ephemerides.",
+        "Empirical self-consistent parameters from Gaia parallaxes for a "
+        "homogeneous catalog.")
+    stub = _StubHTTP({
+        "2023ApJS..265....4K": _HttpResp(302, {"Location": "https://arxiv.org/abs/2209.09673"}),
+        "2017AJ....153..136S": _HttpResp(302, {"Location": "https://arxiv.org/abs/1609.04389"}),
+        "id_list=2209.09673": _HttpResp(200, text=_ATOM_OK),
+        "id_list=1609.04389": _HttpResp(200, text=atom_gaia),
+    })
+    low = {"reference": "Kokori et al. 2023", "bibcode": "2023ApJS..265....4K",
+           "value": 2.218574944, "sigma": 3e-8, "pubdate": "2023-03"}
+    high = {"reference": "Stassun et al. 2017", "bibcode": "2017AJ....153..136S",
+            "value": 2.21857567, "sigma": 1.5e-7, "pubdate": "2017-03"}
+    out = explain_pair(low, high, stub)
+    check(out["low"]["available"] and out["high"]["available"],
+          "both papers resolved through the stub")
+    diff = out["difference"]
+    check("transit timing / ephemeris monitoring" in diff["methods_low_only"],
+          "timing attributed only to the ephemeris side")
+    check("astrometry / parallax" in diff["methods_high_only"],
+          "parallax attributed only to the empirical side")
+    check("different kinds of analysis" in diff["narrative"],
+          "narrative states the methods differ")
+
+
+def test_explain_pair_degrades_honestly() -> None:
+    stub = _StubHTTP({
+        "2023ApJS..265....4K": _HttpResp(302, {"Location": "https://arxiv.org/abs/2209.09673"}),
+        "id_list=2209.09673": _HttpResp(200, text=_ATOM_OK),
+    })  # the other bibcode 404s: no eprint
+    out = explain_pair(
+        {"reference": "A", "bibcode": "2023ApJS..265....4K", "value": 1.0,
+         "sigma": 0.1, "pubdate": "2023-01"},
+        {"reference": "B et al. 1999", "bibcode": "1999Paywalled....1B",
+         "value": 2.0, "sigma": 0.1, "pubdate": "1999-01"}, stub)
+    check(not out["high"]["available"]
+          and "no arXiv eprint" in out["high"]["reason"],
+          "missing eprint reported with a reason, not invented")
+    check("partial explanation" in out["difference"]["narrative"],
+          "narrative admits it is partial")
+    check("ui.adsabs.harvard.edu/abs/1999Paywalled....1B"
+          in out["high"]["reason"],
+          "reason hands back the ADS link to read the paper")
+
+
+# --------------------------------------------- transmission spectrum shape
+def test_shape_transit_rows() -> None:
+    ref = ("<a refstr=X href=https://ui.adsabs.harvard.edu/abs/"
+           "2008MNRAS.tmp..961P/abstract target=ref>Pont et al. 2008</a>")
+    rows = [
+        {"centralwavelng": "0.55", "bandwidth": "0.05", "plnratror": "0.155",
+         "plnratrorerr1": "0.001", "plnratrorerr2": "-0.002",
+         "facility": "HST", "instrument": "ACS", "plntranreflink": ref},
+        {"centralwavelng": "3.6", "bandwidth": "0.75", "plnratror": "0.154",
+         "plnratrorerr1": None, "plnratrorerr2": None,
+         "facility": "Spitzer", "instrument": "IRAC", "plntranreflink": ref},
+        {"centralwavelng": "4.5", "bandwidth": "1.0", "plnratror": "0.1545",
+         "plnratrorerr1": "0.0005", "plnratrorerr2": "-0.0005",
+         "facility": "Spitzer", "instrument": "irac", "plntranreflink": ref},
+        {"centralwavelng": None, "plnratror": "0.15"},   # unusable: no wavelength
+    ]
+    out = shape_transit_rows(rows)
+    check(out["n_points"] == 3, "row without wavelength dropped")
+    p0 = out["points"][0]
+    check(abs(p0["depth"] - 0.155 ** 2) < 1e-12, "depth = ratio squared")
+    check(abs(p0["rp_rs_err"] - 0.0015) < 1e-12,
+          "asymmetric errors symmetrized by mean of magnitudes")
+    check(abs(p0["depth_err"] - 2 * 0.155 * 0.0015) < 1e-12,
+          "depth error propagated as 2 r sigma_r")
+    check(out["points"][1]["depth_err"] is None,
+          "missing ratio error yields no invented depth error")
+    check(set(out["instruments"]) == {"acs", "irac"},
+          "case-variant IRAC rows grouped under one canonical instrument")
+    check(out["instruments"]["irac"]["n_points"] == 2
+          and out["instruments"]["irac"]["references"] == ["Pont et al. 2008"],
+          "per-instrument summary counts and attributes")
+    only = shape_transit_rows(rows, instrument="IRAC")
+    check(only["n_points"] == 2 and set(only["instruments"]) == {"irac"},
+          "instrument filter is case-insensitive")
+
+
 def main() -> int:
     print("=" * 66)
     print("Exoplanet archive client + disagreement analysis")
@@ -278,7 +445,10 @@ def main() -> int:
                test_tension_uses_all_pairs, test_archive_default_is_flagged,
                test_narrative_distinguishes_no_uncertainty_cases,
                test_contested_threshold, test_instrument_breakdown_groups,
-               test_analysis_keeps_the_two_halves_apart, test_empty_and_missing):
+               test_analysis_keeps_the_two_halves_apart, test_empty_and_missing,
+               test_gateway_resolves_and_encodes, test_arxiv_metadata_parses_atom,
+               test_method_fingerprint_families, test_explain_pair_tells_methods_apart,
+               test_explain_pair_degrades_honestly, test_shape_transit_rows):
         try:
             fn()
         except Exception as e:                              # noqa: BLE001
