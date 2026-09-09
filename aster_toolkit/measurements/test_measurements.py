@@ -39,7 +39,12 @@ from aster_toolkit.measurements.disagreement import (  # noqa: E402
 from aster_toolkit.measurements.explain import (  # noqa: E402
     arxiv_id_for_bibcode, arxiv_metadata, explain_pair, method_fingerprint,
 )
-from aster_toolkit.measurements.spectra import shape_transit_rows  # noqa: E402
+from aster_toolkit.measurements.archive_interface import (  # noqa: E402
+    FIREFLY_ATMOSPHERES, workspace_from_page,
+)
+from aster_toolkit.measurements.spectra import (  # noqa: E402
+    parse_ipac_table, shape_spectrum_file, shape_transit_rows, wget_script,
+)
 
 _P = _F = 0
 
@@ -434,6 +439,227 @@ def test_shape_transit_rows() -> None:
           "instrument filter is case-insensitive")
 
 
+def test_depth_from_quoted_depth() -> None:
+    print("\n>> transitspec rows quoting a depth but no ratio...")
+    ref = ("<a refstr=B href=https://ui.adsabs.harvard.edu/abs/"
+           "2019ApJ...887L..14B/abstract target=ref>Benneke et al. 2019</a>")
+    rows = [
+        # K2-18 b style: depth in percent, ratio absent (63% of the table)
+        {"centralwavelng": "1.4", "bandwidth": "0.03", "plnratror": None,
+         "plnratrorerr1": None, "plnratrorerr2": None,
+         "plntransdep": "0.2976", "plntransdeperr1": "0.0025",
+         "plntransdeperr2": "-0.0025", "facility": "HST",
+         "instrument": "WFC3", "plntranreflink": ref},
+        # both quoted: the quoted depth wins, the ratio is kept as quoted
+        {"centralwavelng": "3.6", "bandwidth": "0.75", "plnratror": "0.08182",
+         "plnratrorerr1": "0.0005", "plnratrorerr2": "-0.0005",
+         "plntransdep": "0.6694", "plntransdeperr1": "0.01",
+         "plntransdeperr2": "-0.01", "facility": "Spitzer",
+         "instrument": "IRAC", "plntranreflink": ref},
+        # neither: nothing invented
+        {"centralwavelng": "4.5", "plnratror": None, "plntransdep": None,
+         "instrument": "IRAC", "plntranreflink": ref},
+    ]
+    out = shape_transit_rows(rows)
+    p0, p1, p2 = out["points"]
+    check(abs(p0["depth"] - 0.002976) < 1e-12, "percent depth becomes a fraction")
+    check(abs(p0["depth_err"] - 0.000025) < 1e-12, "depth error converted too")
+    check(p0["depth_source"] == "quoted", "source recorded as quoted")
+    check(abs(p0["rp_rs"] - 0.002976 ** 0.5) < 1e-12,
+          "ratio derived as sqrt(depth) when the paper quoted a depth")
+    check(abs(p0["rp_rs_err"] - 0.000025 / (2 * 0.002976 ** 0.5)) < 1e-12,
+          "ratio error derived by first-order propagation")
+    check(abs(p1["depth"] - 0.006694) < 1e-12 and p1["rp_rs"] == 0.08182,
+          "quoted depth preferred over ratio, quoted ratio untouched")
+    check(p2["depth"] is None and p2["rp_rs"] is None and p2["depth_source"] is None,
+          "row with neither yields nothing invented")
+
+
+IPAC_TEXT = """\\PL_NAME = Kepler-20 c
+\\SPEC_TYPE = Transmission
+\\INSTRUMENT = Infrared Array Camera (IRAC)
+\\REFERENCE = D&eacute;sert et al. 2015
+\\
+|CENTRALWAVELNG|BANDWIDTH|PL_TRANDEP|PL_TRANDEPERR1|PL_TRANDEPERR2|PL_TRANDEPLIM|       PL_TRANDEP_AUTHORS|PL_RATROR|PL_RATRORERR1|PL_RATRORERR2|PL_RATROR_AUTHORS|
+|        double|   double|    double|        double|        double|         long|                     char|   double|       double|       double|             char|
+|       microns|  microns|         %|              |              |             |                         |         |             |             |                 |
+|          null|     null|      null|          null|          null|         null|                     null|     null|         null|         null|             null|
+        4.50000      null    0.05700        0.02200       -0.02300             0 D&eacute;sert et al. 2015   0.02387       0.00423      -0.00544        Calculated
+        3.60000     0.750    0.06000        0.02000       -0.02000             0 D&eacute;sert et al. 2015      null          null          null              null
+"""
+
+
+def test_parse_ipac_table() -> None:
+    print("\n>> IPAC spectrum file parsing...")
+    t = parse_ipac_table(IPAC_TEXT)
+    check(t["keywords"]["PL_NAME"] == "Kepler-20 c"
+          and t["keywords"]["SPEC_TYPE"] == "Transmission",
+          "header keywords read")
+    check(t["columns"][0] == "CENTRALWAVELNG" and len(t["columns"]) == 11,
+          "column names from the bar positions")
+    check(t["units"][2] == "%", "units row read")
+    r0, r1 = t["rows"]
+    check(r0["CENTRALWAVELNG"] == 4.5 and r0["BANDWIDTH"] is None,
+          "numerals become floats, null becomes None")
+    check(r0["PL_TRANDEP_AUTHORS"] == "D&eacute;sert et al. 2015",
+          "a value containing spaces stays whole (fixed-width, not split)")
+    check(r0["PL_RATROR_AUTHORS"] == "Calculated" and r1["PL_RATROR"] is None,
+          "last column and trailing nulls read")
+    try:
+        parse_ipac_table("<html>Not Found</html>")
+        check(False, "should reject a non-IPAC body")
+    except ValueError:
+        check(True, "non-IPAC body rejected")
+
+
+def test_shape_spectrum_file() -> None:
+    print("\n>> spectrum file -> points...")
+    meta = {"spec_type": "Transmission", "bibcode": "2015ApJ...804...59D"}
+    out = shape_spectrum_file(meta, parse_ipac_table(IPAC_TEXT))
+    check(out["n_points"] == 2 and out["truncated"] is False, "two points")
+    p = out["points"][0]
+    check(abs(p["depth"] - 0.00057) < 1e-12 and p["depth_source"] == "quoted",
+          "percent depth converted once")
+    check(abs(p["depth_err"] - 0.000225) < 1e-12, "asymmetric % errors symmetrized")
+    check(p["rp_rs"] == 0.02387 and p["ratio_provenance"] == "Calculated",
+          "quoted ratio and its provenance carried")
+    capped = shape_spectrum_file(meta, parse_ipac_table(IPAC_TEXT), max_points=1)
+    check(capped["n_points"] == 2 and capped["truncated"] and len(capped["points"]) == 1,
+          "max_points truncates but reports the full count")
+    ecl = parse_ipac_table(
+        "|CENTRALWAVELNG|BANDWIDTH|ESPECLIPDEP|ESPECLIPDEPERR1|ESPECLIPDEPERR2|ESPBRITEMP|\n"
+        "|        double|   double|     double|         double|         double|    double|\n"
+        "        3.60000     0.750     0.12000         0.01000        -0.01000    1200.0\n")
+    e = shape_spectrum_file({"spec_type": "Eclipse"}, ecl)["points"][0]
+    check(abs(e["eclipse_depth"] - 0.0012) < 1e-12 and e["brightness_temp_k"] == 1200.0,
+          "eclipse files shaped with their own quantities")
+
+
+PAGE = ('<html><body onload="FF_InitPage (\'/work/TMP_o4hG9k_27762/atmospheres/tab1\', '
+        '\'/workspace/TMP_o4hG9k_27762\', \'/exodata/FDL\', \'Exoplanet Archive\', '
+        '\'tab1Tab\', \'0\', \'ops\')"></body></html>')
+
+
+def test_workspace_from_page() -> None:
+    print("\n>> Firefly workspace minting...")
+    check(workspace_from_page(PAGE) == "/workspace/TMP_o4hG9k_27762",
+          "workspace read from the page's init call")
+    check(workspace_from_page("<html>maintenance</html>") is None,
+          "absent workspace is None, not a guess")
+
+
+def test_spectrum_file_reminted_on_404() -> None:
+    print("\n>> spectrum file fetch survives an expired workspace...")
+    sess = _Session([_Resp(PAGE), _Resp("gone", status=404),
+                     _Resp(PAGE.replace("o4hG9k_27762", "V1xEbo_29048")),
+                     _Resp(IPAC_TEXT)])
+    arc = ExoplanetArchive(session=sess)
+    text = arc.spectrum_file("56/12/36/06/Kepler_20_c_3.101_3665_1.tbl")
+    urls = [c["url"] for c in sess.calls]
+    check(urls[0] == FIREFLY_ATMOSPHERES, "first call mints a workspace")
+    check(urls[1].endswith("/workspace/TMP_o4hG9k_27762/atmospheres/tab1/data/"
+                           "56/12/36/06/Kepler_20_c_3.101_3665_1.tbl"),
+          "file URL is host + workspace + data subpath + spec_path")
+    check(urls[2] == FIREFLY_ATMOSPHERES and "V1xEbo_29048" in urls[3],
+          "404 re-mints a workspace once and retries")
+    check(text == IPAC_TEXT, "IPAC body returned")
+    sess2 = _Session([_Resp(PAGE), _Resp("<html>Not Found</html>", status=200)])
+    try:
+        ExoplanetArchive(session=sess2).spectrum_file("x/y.tbl")
+        check(False, "should reject an HTML body served with 200")
+    except ArchiveError as e:
+        check("not an IPAC table" in str(e), "HTML-with-200 rejected")
+
+
+def test_wget_script() -> None:
+    print("\n>> wget script rendering...")
+    s = wget_script([("A.tbl", "https://h/w/A.tbl"), ("B.tbl", "https://h/w/B.tbl")],
+                    comment="test")
+    lines = s.splitlines()
+    check(lines[0] == "# test" and lines[1] == "wget -O A.tbl https://h/w/A.tbl"
+          and lines[2].split() == ["wget", "-O", "B.tbl", "https://h/w/B.tbl"],
+          "one 4-token wget line per file, comment first (DownloadDataset skips '#')")
+
+
+def test_atmospheric_spectra_tool_offline() -> None:
+    print("\n>> atmospheric_spectra tool end to end, archive stubbed...")
+    import aster_toolkit.measurements.measurement_tools as mt
+
+    index = [
+        {"pl_name": "Kepler-20 c", "spec_type": "Transmission",
+         "authors": "D&eacute;sert et al. 2015", "bibcode": "2015ApJ...804...59D",
+         "num_datapoints": 2.0, "instrument": "Infrared Array Camera (IRAC)",
+         "facility": "Spitzer Space Telescope satellite", "minwavelng": 3.6,
+         "maxwavelng": 4.5, "mintranmid": None, "maxtranmid": None, "note": None,
+         "spec_path": "56/12/36/06/Kepler_20_c_3.101_3665_1.tbl"},
+        {"pl_name": "Kepler-20 c", "spec_type": "Transmission",
+         "authors": "Other et al. 2020", "bibcode": "2020AJ....160....1O",
+         "num_datapoints": 9.0, "instrument": "Wide Field Camera 3",
+         "facility": "Hubble Space Telescope satellite", "minwavelng": 1.1,
+         "maxwavelng": 1.7, "mintranmid": None, "maxtranmid": None, "note": None,
+         "spec_path": "aa/bb/cc/dd/Kepler_20_c_3.101_9999_1.tbl"},
+    ]
+
+    class _StubArchive:
+        fetched = []
+
+        def spectra_index(self, planet, spec_type="Transmission"):
+            return index if planet == "Kepler-20 c" else []
+
+        def mint_spectra_workspace(self):
+            self._workspace = "/workspace/TMP_stub"
+            return self._workspace
+
+        def spectrum_file_url(self, spec_path):
+            return f"https://exoplanetarchive.ipac.caltech.edu{self._workspace}/atmospheres/tab1/data/{spec_path}"
+
+        def spectrum_file(self, spec_path):
+            _StubArchive.fetched.append(spec_path)
+            return IPAC_TEXT
+
+    real = mt.ExoplanetArchive
+    mt.ExoplanetArchive = _StubArchive
+    try:
+        # A fresh instance per call: orchestral keeps runtime field values on
+        # the instance between execute() calls, as the agent always resends
+        # every argument.
+        tool = mt.AtmosphericSpectraTool
+        out = json.loads(tool().execute(planet_name="Kepler-20 c", include_points=True))
+        check(out["status"] == "ok" and out["n_available"] == 2 and out["n_returned"] == 2,
+              "both spectra listed")
+        s0 = out["spectra"][0]
+        check(s0["file"] == "Kepler_20_c_3.101_3665_1.tbl"
+              and s0["url"].endswith("/workspace/TMP_stub/atmospheres/tab1/data/"
+                                     "56/12/36/06/Kepler_20_c_3.101_3665_1.tbl"),
+              "file name and direct URL built from the minted workspace")
+        check(s0["n_points"] == 2 and abs(s0["points"][0]["depth"] - 0.00057) < 1e-12,
+              "points fetched, parsed and depth converted")
+        lines = out["wget_script"].splitlines()
+        check(lines[0].startswith("#") and len(lines) == 3
+              and all(l.split()[:2] == ["wget", "-O"] and len(l.split()) == 4 for l in lines[1:]),
+              "wget script has one DownloadDataset-parsable line per spectrum")
+        check(_StubArchive.fetched == [r["spec_path"] for r in index],
+              "one file fetched per returned spectrum")
+
+        _StubArchive.fetched.clear()
+        out = json.loads(tool().execute(planet_name="Kepler-20 c", instrument="wide FIELD"))
+        check(out["n_matching"] == 1 and out["spectra"][0]["bibcode"] == "2020AJ....160....1O"
+              and "points" not in out["spectra"][0] and not _StubArchive.fetched,
+              "instrument filter is a case-insensitive substring; no fetch without include_points")
+        out = json.loads(tool().execute(planet_name="Kepler-20 c", bibcode="nomatch"))
+        check(out["status"] == "error" and len(out["available"]) == 2,
+              "unmatched filter lists what is available")
+        out = json.loads(tool().execute(planet_name="Nope b"))
+        check(out["status"] == "error" and "atmospheric" in out["error"].lower()
+              and "transmissionspectrum" in out["hint"],
+              "unknown planet errors with a pointer to the other table")
+        out = json.loads(tool().execute(planet_name="Kepler-20 c", max_spectra=1))
+        check(out["n_returned"] == 1 and out["skipped"][0]["bibcode"] == "2020AJ....160....1O",
+              "max_spectra caps and reports what it skipped")
+    finally:
+        mt.ExoplanetArchive = real
+
+
 def main() -> int:
     print("=" * 66)
     print("Exoplanet archive client + disagreement analysis")
@@ -448,7 +674,11 @@ def main() -> int:
                test_analysis_keeps_the_two_halves_apart, test_empty_and_missing,
                test_gateway_resolves_and_encodes, test_arxiv_metadata_parses_atom,
                test_method_fingerprint_families, test_explain_pair_tells_methods_apart,
-               test_explain_pair_degrades_honestly, test_shape_transit_rows):
+               test_explain_pair_degrades_honestly, test_shape_transit_rows,
+               test_depth_from_quoted_depth, test_parse_ipac_table,
+               test_shape_spectrum_file, test_workspace_from_page,
+               test_spectrum_file_reminted_on_404, test_wget_script,
+               test_atmospheric_spectra_tool_offline):
         try:
             fn()
         except Exception as e:                              # noqa: BLE001

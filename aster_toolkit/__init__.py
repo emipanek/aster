@@ -16,6 +16,7 @@ from .measurements import (
     MeasurementDisagreementTool,
     ExplainDisagreementTool,
     TransmissionSpectrumTool,
+    AtmosphericSpectraTool,
     ExoplanetArchiveQueryTool,
 )
 
@@ -35,6 +36,7 @@ __all__ = [
     'MeasurementDisagreementTool',
     'ExplainDisagreementTool',
     'TransmissionSpectrumTool',
+    'AtmosphericSpectraTool',
     'ExoplanetArchiveQueryTool',
 ]
 

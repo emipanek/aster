@@ -1,10 +1,14 @@
 """
 Exoplanet tools: check a paper's claimed measurements against the archive.
 
-  ResolvePlanetNameTool     paper spelling -> archive pl_name
-  PublishedMeasurementsTool every published value, with its reference
-  MeasurementDisagreementTool  quantify the spread and attribute instruments
-  ExoplanetArchiveQueryTool raw ADQL, for anything the above does not cover
+  ResolvePlanetNameTool       paper spelling -> archive pl_name
+  PublishedMeasurementsTool   every published value, with its reference
+  MeasurementDisagreementTool quantify the spread and attribute instruments
+  ExplainDisagreementTool     WHY the worst-tension pair differs (from papers)
+  TransmissionSpectrumTool    points from the legacy transitspec table
+  AtmosphericSpectraTool      spectra files from the Atmospheric Spectroscopy
+                              table, no wget script, DownloadDataset-ready
+  ExoplanetArchiveQueryTool   raw ADQL, for anything the above does not cover
 
 The intended chain is: pull a claimed value out of a paper, resolve the
 planet name, then ask what else has been
@@ -12,6 +16,10 @@ published for it and whether the claim sits inside or outside that spread.
 
 None of these tools decide who is right. They quantify, attribute, and hand
 back the references.
+
+Naming: orchestral shows the model a tool named after its class (``ResolvePlanetNameTool``
+-> ``resolveplanetname``) and described by its docstring, so hints below refer to
+tools by those derived names.
 """
 
 from __future__ import annotations
@@ -25,7 +33,8 @@ from orchestral.tools.base.field_utils import RuntimeField
 from .archive_interface import ArchiveError, ExoplanetArchive
 from .disagreement import PARAMETERS, analyse, compare_parameter
 from .explain import explain_pair
-from .spectra import shape_transit_rows
+from .spectra import (parse_ipac_table, shape_spectrum_file, shape_transit_rows,
+                      wget_script)
 
 SCHEMA_VERSION = "exoplanet-1.0"
 
@@ -40,6 +49,13 @@ def _ok(**payload) -> str:
                        **payload}, indent=2, default=str)
 
 
+def _int(v) -> Optional[int]:
+    try:
+        return int(float(v)) if v not in (None, "") else None
+    except (TypeError, ValueError):
+        return None
+
+
 class ResolvePlanetNameTool(BaseTool):
     """Map a planet name as written in a paper onto the archive's spelling.
 
@@ -47,12 +63,6 @@ class ResolvePlanetNameTool(BaseTool):
     match silently returns nothing. Always resolve before querying, and treat
     multiple candidates as a question for the user rather than picking one.
     """
-
-    name: str = "resolve_planet_name"
-    description: str = (
-        "Resolve a planet name as written in a paper to the NASA Exoplanet "
-        "Archive's canonical pl_name. Returns candidates, not a single answer."
-    )
 
     planet_name: str = RuntimeField(description="Planet name as written, e.g. 'K2-18b'")
     limit: Optional[int] = RuntimeField(default=10, description="Max candidates")
@@ -79,13 +89,6 @@ class PublishedMeasurementsTool(BaseTool):
     tool exists to show.
     """
 
-    name: str = "published_measurements"
-    description: str = (
-        "Get every published measurement set for a planet from the NASA "
-        "Exoplanet Archive ps table (one row per published reference), with "
-        "radius, mass, period, uncertainties and the source reference."
-    )
-
     planet_name: str = RuntimeField(description="Archive pl_name, e.g. 'HD 189733 b'")
 
     def _run(self) -> str:
@@ -95,7 +98,7 @@ class PublishedMeasurementsTool(BaseTool):
             return _err(str(e))
         if not rows:
             return _err(f"no rows in ps for '{self.planet_name}'",
-                        hint="Resolve the name first with resolve_planet_name.")
+                        hint="Resolve the name first with resolveplanetname.")
         return _ok(planet=self.planet_name, n_references=len(rows),
                    measurements=rows)
 
@@ -114,15 +117,6 @@ class MeasurementDisagreementTool(BaseTool):
     measurements. Fusing them would assert a join the archive does not have.
     """
 
-    name: str = "measurement_disagreement"
-    description: str = (
-        "Explain how published measurements of a planet disagree: the spread "
-        "of each parameter across references, whether uncertainties absorb "
-        "it, and an instrument breakdown from the spectroscopy tables. For "
-        "WHY a specific pair differs, follow up with "
-        "explain_measurement_disagreement."
-    )
-
     planet_name: str = RuntimeField(description="Archive pl_name, e.g. 'HD 189733 b'")
     include_spectroscopy: Optional[bool] = RuntimeField(
         default=True, description="Also query transitspec and emissionspec")
@@ -135,7 +129,7 @@ class MeasurementDisagreementTool(BaseTool):
             return _err(str(e))
         if not ps_rows:
             return _err(f"no rows in ps for '{self.planet_name}'",
-                        hint="Resolve the name first with resolve_planet_name.")
+                        hint="Resolve the name first with resolveplanetname.")
 
         transit = emission = None
         warnings: List[str] = []
@@ -166,7 +160,7 @@ class MeasurementDisagreementTool(BaseTool):
 class ExplainDisagreementTool(BaseTool):
     """WHY do the two most discrepant published values differ?
 
-    ``measurement_disagreement`` finds and quantifies a disagreement; this
+    ``measurementdisagreement`` finds and quantifies a disagreement; this
     tool follows the two references of the worst-tension pair to their
     papers (bibcode -> ADS link gateway -> arXiv abstract, keyless) and
     reports what kind of analysis each side says it did, and how the two
@@ -174,18 +168,11 @@ class ExplainDisagreementTool(BaseTool):
     so and hands back the arXiv ids to read instead of guessing.
     """
 
-    name: str = "explain_measurement_disagreement"
-    description: str = (
-        "Explain WHY two published values of a planet parameter disagree: "
-        "follow each reference to its paper and compare the methods the "
-        "papers themselves describe. Keyless; abstract-level."
-    )
-
     planet_name: str = RuntimeField(description="Archive pl_name, e.g. 'HD 189733 b'")
-    parameter: Optional[str] = RuntimeField(
-        default=None,
-        description=("ps column to explain, e.g. 'pl_orbper'. Omit to pick "
-                     "the parameter with the worst tension automatically."))
+    parameter: str = RuntimeField(
+        default="",
+        description=("ps column to explain, e.g. 'pl_orbper'. Empty string "
+                     "picks the parameter with the worst tension."))
 
     def _run(self) -> str:
         try:
@@ -194,7 +181,7 @@ class ExplainDisagreementTool(BaseTool):
             return _err(str(e))
         if not rows:
             return _err(f"no rows in ps for '{self.planet_name}'",
-                        hint="Resolve the name first with resolve_planet_name.")
+                        hint="Resolve the name first with resolveplanetname.")
 
         if self.parameter:
             if self.parameter not in PARAMETERS:
@@ -210,7 +197,7 @@ class ExplainDisagreementTool(BaseTool):
             return _err(
                 "no parameter has two values with quoted uncertainties, so "
                 "there is no tension pair to explain",
-                hint="published_measurements shows what the rows carry.")
+                hint="publishedmeasurements shows what the rows carry.")
         worst = max(contested, key=lambda c: c["max_tension_sigma"] or 0)
         pair = worst["max_tension_pair"]
 
@@ -228,28 +215,26 @@ class ExplainDisagreementTool(BaseTool):
 class TransmissionSpectrumTool(BaseTool):
     """Fetch a planet's published transmission spectrum from the archive.
 
-    Reads ``transitspec`` over keyless TAP — no Firefly clicking, no wget
-    lists — and returns wavelength-ordered points with the transit depth
-    already propagated from the quoted Rp/R* ratio, plus per-row facility,
-    instrument and reference. The per-instrument summary says who observed
-    this planet over which wavelength range before you read a single point.
+    Reads the ``transitspec`` table over keyless TAP and returns
+    wavelength-ordered points with the transit depth as a fraction — taken
+    from the quoted depth when the paper quoted one (63% of rows), else
+    propagated from the quoted Rp/R* — plus per-row facility, instrument
+    and reference. The per-instrument summary says who observed this planet
+    over which wavelength range before you read a single point.
+
+    ``transitspec`` is the older, point-per-row table (104 planets). The
+    file-backed Atmospheric Spectroscopy table covers 203 planets and is
+    where JWST spectra land; ``atmosphericspectra`` reads that one.
 
     The points feed a TauREx observed spectrum directly: wavelength_um,
-    depth ( = (Rp/R*)^2 ), depth_err, bin_um.
+    depth, depth_err, bin_um.
     """
 
-    name: str = "transmission_spectrum"
-    description: str = (
-        "Fetch the published transmission spectrum of a planet from the "
-        "NASA Exoplanet Archive transitspec table: wavelength-resolved "
-        "transit depths with per-point instrument, facility and reference. "
-        "Keyless; ready for a TauREx observed-spectrum file."
-    )
-
     planet_name: str = RuntimeField(description="Archive pl_name, e.g. 'HD 189733 b'")
-    instrument: Optional[str] = RuntimeField(
-        default=None,
-        description="Only points from this instrument (case-insensitive), e.g. 'IRAC'")
+    instrument: str = RuntimeField(
+        default="",
+        description=("Only points from this instrument (case-insensitive), "
+                     "e.g. 'IRAC'. Empty string means all instruments."))
     max_points: Optional[int] = RuntimeField(
         default=500, description="Cap on returned points")
 
@@ -261,11 +246,11 @@ class TransmissionSpectrumTool(BaseTool):
         if not rows:
             return _err(
                 f"no transitspec rows for '{self.planet_name}'",
-                hint=("Resolve the name first with resolve_planet_name. The "
-                      "spectroscopy tables also lag the literature — a "
-                      "recently observed planet may simply not be in them."))
+                hint=("Resolve the name first with resolveplanetname, then "
+                      "try atmosphericspectra: the Atmospheric Spectroscopy "
+                      "table covers 99 planets this table does not."))
 
-        shaped = shape_transit_rows(rows, instrument=self.instrument)
+        shaped = shape_transit_rows(rows, instrument=self.instrument or None)
         if not shaped["n_points"]:
             return _err(
                 f"transitspec has rows for '{self.planet_name}' but none "
@@ -278,6 +263,128 @@ class TransmissionSpectrumTool(BaseTool):
         return _ok(planet=self.planet_name, truncated=truncated, **shaped)
 
 
+class AtmosphericSpectraTool(BaseTool):
+    """Fetch published spectra from the archive's Atmospheric Spectroscopy table.
+
+    This is the file-backed table where JWST-era spectra land: 940
+    transmission spectra for 203 planets as of 2026-09, against 104 planets
+    in ``transitspec``. The archive hands out its files only through a wget
+    script that a person generates by filtering and clicking in the Firefly
+    page. That script is just ``host + session workspace + spec_path`` per
+    file, and the workspace is minted by loading the page once — so this
+    tool builds the same script from a planet name, with no browser, and
+    can parse the files straight into points.
+
+    Chain with ``downloaddataset`` (DownloadDataset): pass this result's ``wget_script`` as
+    its ``wget_text`` and it produces TauREx-ready ``spectrum.dat`` files
+    organised by planet, exactly as if the script had come from the site.
+    """
+
+    planet_name: str = RuntimeField(description="Archive pl_name, e.g. 'WASP-39 b'")
+    spec_type: str = RuntimeField(
+        default="Transmission",
+        description="'Transmission' (default), 'Eclipse', 'Direct Imaging' or 'any'")
+    bibcode: str = RuntimeField(
+        default="",
+        description=("Only spectra from this reference (ADS bibcode; substring "
+                     "ok). Empty string means all references."))
+    instrument: str = RuntimeField(
+        default="",
+        description=("Only spectra whose instrument contains this text "
+                     "(case-insensitive), e.g. 'NIRSpec' or 'G395H'. Empty "
+                     "string means all instruments."))
+    include_points: bool = RuntimeField(
+        default=False,
+        description="Also fetch and parse each spectrum's points (one request per spectrum)")
+    max_spectra: int = RuntimeField(
+        default=20, description="Cap on spectra returned (and files fetched)")
+    max_points: int = RuntimeField(
+        default=500, description="Cap on points per spectrum when include_points")
+
+    def _run(self) -> str:
+        arc = ExoplanetArchive()
+        kind = (self.spec_type or "Transmission").strip()
+        try:
+            index = arc.spectra_index(self.planet_name, kind)
+        except ArchiveError as e:
+            return _err(str(e))
+        if not index:
+            return _err(
+                f"no {kind} spectra for '{self.planet_name}' in the "
+                "Atmospheric Spectroscopy table",
+                hint=("Resolve the name first with resolveplanetname, or "
+                      "try spec_type='any'. transmissionspectrum reads the "
+                      "older transitspec table, which covers some planets "
+                      "this one does not."))
+
+        want_bib = (self.bibcode or "").strip().lower()
+        want_inst = (self.instrument or "").strip().lower()
+        matched = [
+            r for r in index
+            if (not want_bib or want_bib in str(r.get("bibcode") or "").lower())
+            and (not want_inst or want_inst in str(r.get("instrument") or "").lower())]
+        if not matched:
+            return _err(
+                f"{len(index)} {kind} spectra for '{self.planet_name}', "
+                "none matching the bibcode/instrument filter",
+                available=[{"bibcode": r.get("bibcode"),
+                            "instrument": r.get("instrument")} for r in index])
+
+        cap = max(1, int(self.max_spectra or 20))
+        selected, skipped = matched[:cap], matched[cap:]
+        try:
+            workspace = arc.mint_spectra_workspace()
+        except ArchiveError as e:
+            return _err(str(e))
+
+        spectra: List[dict] = []
+        warnings: List[str] = []
+        for r in selected:
+            spec_path = str(r["spec_path"])
+            entry = {
+                "bibcode": r.get("bibcode"),
+                "reference": r.get("authors"),
+                "spec_type": r.get("spec_type"),
+                "instrument": r.get("instrument"),
+                "facility": r.get("facility"),
+                "n_points": _int(r.get("num_datapoints")),
+                "wavelength_min_um": r.get("minwavelng"),
+                "wavelength_max_um": r.get("maxwavelng"),
+                "obs_date_min_bjd": r.get("mintranmid"),
+                "obs_date_max_bjd": r.get("maxtranmid"),
+                "note": r.get("note"),
+                "file": spec_path.rsplit("/", 1)[-1],
+                "url": arc.spectrum_file_url(spec_path),
+            }
+            if self.include_points:
+                try:
+                    table = parse_ipac_table(arc.spectrum_file(spec_path))
+                    entry.update(shape_spectrum_file(
+                        r, table, max_points=int(self.max_points or 500)))
+                except (ArchiveError, ValueError) as e:
+                    warnings.append(f"{entry['file']}: {e}")
+            spectra.append(entry)
+
+        script = wget_script(
+            [(s["file"], s["url"]) for s in spectra],
+            comment=(f"NASA Exoplanet Archive {kind} spectra for "
+                     f"{self.planet_name}; generated by atmosphericspectra"))
+        out = dict(
+            planet=self.planet_name, spec_type=kind,
+            n_available=len(index), n_matching=len(matched),
+            n_returned=len(spectra), workspace=workspace,
+            spectra=spectra, wget_script=script,
+            next_step=("Pass wget_script to downloaddataset(wget_text=...) "
+                       "for TauREx-ready spectrum.dat files. The URLs are "
+                       "session-scoped: rerun this tool if they 404."))
+        if skipped:
+            out["skipped"] = [{"bibcode": r.get("bibcode"),
+                               "instrument": r.get("instrument")} for r in skipped]
+        if warnings:
+            out["warnings"] = warnings
+        return _ok(**out)
+
+
 class ExoplanetArchiveQueryTool(BaseTool):
     """Run raw ADQL against the archive, for questions the other tools miss.
 
@@ -288,12 +395,6 @@ class ExoplanetArchiveQueryTool(BaseTool):
     Note that a malformed query comes back as HTTP 200 with an Oracle error
     in the body; that is detected and surfaced as an error here.
     """
-
-    name: str = "exoplanet_archive_query"
-    description: str = (
-        "Run an ADQL query against the NASA Exoplanet Archive TAP service. "
-        "Tables include ps, pscomppars, transitspec, emissionspec."
-    )
 
     adql: str = RuntimeField(
         description="ADQL, e.g. select pl_name,pl_rade from ps where hostname='TRAPPIST-1'")

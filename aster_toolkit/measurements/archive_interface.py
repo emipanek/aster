@@ -31,7 +31,12 @@ from typing import Any, Dict, List, Optional
 
 import requests
 
-TAP_SYNC = "https://exoplanetarchive.ipac.caltech.edu/TAP/sync"
+ARCHIVE_HOST = "https://exoplanetarchive.ipac.caltech.edu"
+TAP_SYNC = ARCHIVE_HOST + "/TAP/sync"
+# The Firefly app in front of the Atmospheric Spectroscopy table. Loading it
+# once mints the session workspace under which spectrum files are served.
+FIREFLY_ATMOSPHERES = ARCHIVE_HOST + "/cgi-bin/atmospheres/nph-firefly?atmospheres"
+SPECTRA_DATA_SUBPATH = "/atmospheres/tab1/data/"
 
 # No documented rate limit, but hammering a public archive on someone else's
 # behalf is rude and gets tools blocked. One request per second, plus backoff.
@@ -73,6 +78,7 @@ class ExoplanetArchive:
         self._session = session or requests.Session()
         self._lock = threading.Lock()
         self._last = 0.0
+        self._workspace: Optional[str] = None
 
     # ------------------------------------------------------------- plumbing
     def _throttle(self) -> None:
@@ -160,7 +166,8 @@ class ExoplanetArchive:
         """
         return self.query(
             "select plntname,centralwavelng,bandwidth,plnratror,"
-            "plnratrorerr1,plnratrorerr2,facility,instrument,plntranreflink "
+            "plnratrorerr1,plnratrorerr2,plntransdep,plntransdeperr1,"
+            "plntransdeperr2,facility,instrument,plntranreflink "
             f"from transitspec where plntname='{_esc(planet)}' "
             "order by centralwavelng")
 
@@ -171,6 +178,83 @@ class ExoplanetArchive:
             "especlipdeperr1,espbritemp,facility,instrument,plntreflink "
             f"from emissionspec where plntname='{_esc(planet)}' "
             "order by centralwavelng")
+
+    # ----------------------------------------------- atmospheric spectroscopy
+    def spectra_index(self, planet: str,
+                      spec_type: Optional[str] = "Transmission"
+                      ) -> List[Dict[str, Any]]:
+        """Metadata rows from ``spectra``, the Atmospheric Spectroscopy table.
+
+        This is the newer, file-backed table: as of 2026-09 it lists 940
+        transmission spectra for 203 planets, against 104 planets in
+        ``transitspec``, and it is where JWST-era spectra land. TAP exposes
+        only the metadata; the points live in one IPAC table file per
+        spectrum, addressed by ``spec_path``. ``spec_type`` is
+        'Transmission', 'Eclipse', 'Direct Imaging', or 'any'.
+        """
+        where = f"pl_name='{_esc(planet)}'"
+        if spec_type and spec_type.strip().lower() != "any":
+            where += f" and spec_type='{_esc(spec_type.strip().title())}'"
+        return self.query(
+            "select pl_name,spec_type,authors,bibcode,num_datapoints,"
+            "instrument,facility,minwavelng,maxwavelng,mintranmid,maxtranmid,"
+            f"note,spec_path from spectra where {where} "
+            "order by bibcode,spec_path")
+
+    def mint_spectra_workspace(self) -> str:
+        """Obtain the session path under which spectrum files are served.
+
+        The archive offers spectrum files only through a wget script from
+        its Firefly page. That script is nothing but ``host + workspace +
+        /atmospheres/tab1/data/ + spec_path`` per file, where the workspace
+        (``/workspace/TMP_xxxx``) is minted on every page load. One GET of
+        the page, no cookies and no JavaScript, yields a workspace — so the
+        script, and the clicking that produces it, are unnecessary.
+        """
+        self._throttle()
+        try:
+            r = self._session.get(FIREFLY_ATMOSPHERES, timeout=self._timeout)
+        except requests.RequestException as e:
+            raise ArchiveError(
+                f"atmospheres app unreachable: {type(e).__name__}") from e
+        if r.status_code >= 400:
+            raise ArchiveError(f"atmospheres app returned {r.status_code}")
+        ws = workspace_from_page(r.text)
+        if not ws:
+            raise ArchiveError(
+                "atmospheres app page carried no workspace path; the "
+                "archive's Firefly layout may have changed")
+        self._workspace = ws
+        return ws
+
+    def spectrum_file_url(self, spec_path: str) -> str:
+        """Direct URL of one spectrum file, minting a workspace if needed."""
+        ws = self._workspace or self.mint_spectra_workspace()
+        return f"{ARCHIVE_HOST}{ws}{SPECTRA_DATA_SUBPATH}{spec_path}"
+
+    def spectrum_file(self, spec_path: str) -> str:
+        """The IPAC table text of one spectrum.
+
+        A workspace can expire; a 404 re-mints one and retries once.
+        """
+        for attempt in (0, 1):
+            url = self.spectrum_file_url(spec_path)
+            self._throttle()
+            try:
+                r = self._session.get(url, timeout=self._timeout)
+            except (requests.Timeout, requests.ConnectionError) as e:
+                raise ArchiveError(
+                    f"spectrum file unreachable: {type(e).__name__}") from e
+            if r.status_code == 404 and attempt == 0:
+                self._workspace = None
+                continue
+            if r.status_code >= 400:
+                raise ArchiveError(f"spectrum file {spec_path}: HTTP {r.status_code}")
+            if not r.text.lstrip().startswith(("\\", "|")):
+                raise ArchiveError(
+                    f"spectrum file {spec_path}: body is not an IPAC table")
+            return r.text
+        raise ArchiveError(f"spectrum file {spec_path}: not found")
 
     def count(self, table: str, planet: str) -> int:
         col = "plntname" if table in ("transitspec", "emissionspec") else "pl_name"
@@ -190,6 +274,16 @@ class ExoplanetArchive:
             "select distinct pl_name from ps where "
             f"replace(pl_name,' ','') like '%{like}%'")
         return [r["pl_name"] for r in rows][:limit]
+
+
+def workspace_from_page(html: str) -> Optional[str]:
+    """The ``/workspace/TMP_...`` path from the Firefly page's init call.
+
+    The page's ``<body onload="FF_InitPage('/work/TMP_x/...', '/workspace/TMP_x', ...)">``
+    is the only place the workspace appears; the second argument is it.
+    """
+    m = re.search(r"FF_InitPage\s*\(\s*'[^']*'\s*,\s*'(/workspace/TMP_[^']+)'", html)
+    return m.group(1) if m else None
 
 
 def _esc(value: str) -> str:

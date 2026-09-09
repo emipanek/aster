@@ -20,8 +20,10 @@ from .archive_interface import (
 )
 from .disagreement import analyse, compare_parameter, tension_sigma
 from .explain import explain_pair, method_fingerprint
-from .spectra import shape_transit_rows
+from .spectra import (parse_ipac_table, shape_spectrum_file, shape_transit_rows,
+                      wget_script)
 from .measurement_tools import (
+    AtmosphericSpectraTool,
     ExoplanetArchiveQueryTool,
     ExplainDisagreementTool,
     MeasurementDisagreementTool,
@@ -36,6 +38,7 @@ __all__ = [
     "MeasurementDisagreementTool",
     "ExplainDisagreementTool",
     "TransmissionSpectrumTool",
+    "AtmosphericSpectraTool",
     "ExoplanetArchiveQueryTool",
     "ExoplanetArchive",
     "ArchiveError",
@@ -45,6 +48,9 @@ __all__ = [
     "explain_pair",
     "method_fingerprint",
     "shape_transit_rows",
+    "shape_spectrum_file",
+    "parse_ipac_table",
+    "wget_script",
     "bibcode_of",
     "reference_label",
     "normalize_instrument",
