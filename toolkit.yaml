@@ -30,11 +30,11 @@ tools:
       miss.
   - module: aster_toolkit.measurements.measurement_tools
     name: ExplainDisagreementTool
-    description: Explain WHY two published values of a planet parameter
+    description: Explain WHY two published values of a planet parameter 
       disagree, from the methods the papers themselves describe.
   - module: aster_toolkit.measurements.measurement_tools
     name: TransmissionSpectrumTool
-    description: Fetch a planet's published transmission spectrum from the
+    description: Fetch a planet's published transmission spectrum from the 
       archive, depth-propagated, with per-point instrument and reference.
   - module: aster_toolkit.measurements.measurement_tools
     name: MeasurementDisagreementTool
@@ -69,3 +69,11 @@ tools:
   - module: aster_toolkit.taurex.set_paths
     name: SetTaurexPaths
     description: Set the paths for TauREx opacity and CIA files.
+  - module: aster_toolkit.binning_tool.bin_spectrum_tool
+    name: BinSpectrum
+    description: Bin a high-resolution spectrum to lower resolution or to an 
+      instrument grid.
+  - module: aster_toolkit.measurements.measurement_tools
+    name: AtmosphericSpectraTool
+    description: Fetch published spectra from the archive's Atmospheric 
+      Spectroscopy table.
