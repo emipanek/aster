@@ -437,6 +437,14 @@ def test_shape_transit_rows() -> None:
     only = shape_transit_rows(rows, instrument="IRAC")
     check(only["n_points"] == 2 and set(only["instruments"]) == {"irac"},
           "instrument filter is case-insensitive")
+    # The live table spells it "Infrared Array Camera (IRAC)"; the filter
+    # must match by substring or the documented example 'IRAC' returns nothing.
+    live = [dict(rows[2], instrument="Infrared Array Camera (IRAC)"),
+            dict(rows[0], instrument="Space Telescope Imaging Spectrograph")]
+    got = shape_transit_rows(live, instrument="irac")
+    check(got["n_points"] == 1
+          and set(got["instruments"]) == {"infrared array camera (irac)"},
+          "filter matches the archive's long instrument names by substring")
 
 
 def test_depth_from_quoted_depth() -> None:

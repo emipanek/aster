@@ -77,15 +77,17 @@ def shape_transit_rows(rows: List[Dict[str, Any]],
                        instrument: Optional[str] = None) -> Dict[str, Any]:
     """Archive ``transitspec`` rows -> spectrum points + instrument summary.
 
-    ``instrument`` filters case-insensitively through
-    ``normalize_instrument`` — the table spells IRAC three different ways.
+    ``instrument`` is a case-insensitive substring of the normalised
+    instrument name, so 'IRAC' matches "Infrared Array Camera (IRAC)" in
+    every spelling the table uses, and 'WFC3' would match nothing because
+    the table writes "Wide Field Camera 3" (the error lists what is there).
     """
     want = normalize_instrument(instrument) if instrument else None
 
     points: List[Dict[str, Any]] = []
     for r in rows:
         inst = normalize_instrument(r.get("instrument"))
-        if want and inst != want:
+        if want and want not in inst:
             continue
         wl = _f(r.get("centralwavelng"))
         if wl is None:
