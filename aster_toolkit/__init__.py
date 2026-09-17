@@ -10,6 +10,15 @@ from .taurex.parfile_tools import WriteTaurexParameterFile
 from .data_acquisition.exoarchive import GetExoplanetParameters, DownloadDataset, FindExoplanetsByCondition
 from .chemistry.fastchem_tools import RunFastChemEquilibriumTool
 from .binning_tool.bin_spectrum_tool import BinSpectrum
+from .measurements import (
+    ResolvePlanetNameTool,
+    PublishedMeasurementsTool,
+    MeasurementDisagreementTool,
+    ExplainDisagreementTool,
+    TransmissionSpectrumTool,
+    AtmosphericSpectraTool,
+    ExoplanetArchiveQueryTool,
+)
 
 __all__ = [
     'RunTaurexTransmissionModelTool',
@@ -22,6 +31,13 @@ __all__ = [
     'FindExoplanetsByCondition',
     'RunFastChemEquilibriumTool',
     'BinSpectrum',
+    'ResolvePlanetNameTool',
+    'PublishedMeasurementsTool',
+    'MeasurementDisagreementTool',
+    'ExplainDisagreementTool',
+    'TransmissionSpectrumTool',
+    'AtmosphericSpectraTool',
+    'ExoplanetArchiveQueryTool',
 ]
 
 # from .taurex_tools import (
