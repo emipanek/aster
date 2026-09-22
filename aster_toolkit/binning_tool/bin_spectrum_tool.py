@@ -1,7 +1,7 @@
 import os
 import difflib
 
-from orchestral.tools.filesystem.filesystem_tools import BaseTool
+from orchestral.tools.base.tool import BaseTool
 from orchestral.tools.base.field_utils import RuntimeField, StateField
 
 

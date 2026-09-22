@@ -9,7 +9,7 @@ keywords: []
 
 config:
   - name: base_directory
-    description: Absolute path to the ASTER workspace directory (outputs,
+    description: Absolute path to the ASTER workspace directory (outputs, 
       downloads, and generated files are written here).
     type: path
 
@@ -48,3 +48,37 @@ tools:
   - module: aster_toolkit.taurex.forward_model
     name: RunTaurexTransmissionModelTool
     description: Run a TauREx forward model
+  - module: aster_toolkit.binning_tool.bin_spectrum_tool
+    name: BinSpectrum
+    description: Bin a high-resolution spectrum to lower resolution or to an 
+      instrument grid.
+  - module: aster_toolkit.measurements.measurement_tools
+    name: AtmosphericSpectraTool
+    description: Fetch published spectra from the archive's Atmospheric 
+      Spectroscopy table.
+  - module: aster_toolkit.measurements.measurement_tools
+    name: ExoplanetArchiveQueryTool
+    description: Run raw ADQL against the archive, for questions the other tools
+      miss.
+  - module: aster_toolkit.measurements.measurement_tools
+    name: ExplainDisagreementTool
+    description: WHY do the two most discrepant published values differ?
+  - module: aster_toolkit.measurements.measurement_tools
+    name: MeasurementDisagreementTool
+    description: Why do published measurements of this planet differ?
+  - module: aster_toolkit.measurements.measurement_tools
+    name: PublishedMeasurementsTool
+    description: Every published parameter set for one planet, one row per 
+      reference.
+  - module: aster_toolkit.measurements.measurement_tools
+    name: ResolvePlanetNameTool
+    description: Map a planet name as written in a paper onto the archive's 
+      spelling.
+  - module: aster_toolkit.measurements.measurement_tools
+    name: TransmissionSpectrumTool
+    description: Fetch a planet's published transmission spectrum from the 
+      archive.
+  - module: aster_toolkit.taurex.forward_model
+    name: RunTaurexEmissionModelTool
+    description: Run a Taurex forward model with specified parameters and 
+      generate an emission spectrum plot.

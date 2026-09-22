@@ -43,6 +43,24 @@ claude                      # or codex / opencode
 ```
 
 
+## Tools
+
+| Area | Tools |
+|---|---|
+| TauREx modelling | `SetTaurexPaths`, `RunTaurexTransmissionModelTool`, `RunTaurexEmissionModelTool`, `SimulateTaurexRetrieval`, `WriteTaurexParameterFile`, `PlotCornerPosteriors` |
+| Data acquisition | `GetExoplanetParameters`, `FindExoplanetsByCondition`, `DownloadDataset` |
+| Published measurements (`aster_toolkit/measurements/`) | `ResolvePlanetNameTool`, `PublishedMeasurementsTool`, `MeasurementDisagreementTool`, `ExplainDisagreementTool`, `TransmissionSpectrumTool`, `AtmosphericSpectraTool`, `ExoplanetArchiveQueryTool` |
+| Chemistry | `RunFastChemEquilibriumTool` |
+| Binning | `BinSpectrum` |
+
+The published-measurements tools read the NASA Exoplanet Archive over its keyless TAP service and compare what different papers report for one planet: every published parameter set (`ps` table, one row per reference), the worst disagreement in sigma, why the two papers differ (from their abstracts), and published spectra. `AtmosphericSpectraTool` lists a planet's spectra in the archive's Atmospheric Spectroscopy table and returns the same wget script the archive website generates, so `DownloadDataset(wget_text=...)` can fetch JWST and other spectra without anyone clicking through the website.
+
+Offline checks for that bundle (stubbed archive, no network):
+
+```bash
+python aster_toolkit/measurements/test_measurements.py
+```
+
 ## Citations
 
 If you use ASTER in your research, please cite:
