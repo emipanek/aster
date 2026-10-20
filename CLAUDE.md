@@ -248,6 +248,13 @@ The `exoarchive.py` module provides access to NASA Exoplanet Archive data:
 2. Set TauREx paths using absolute paths
 3. Call `RunTaurexTransmissionModelTool` with planet/star parameters
 4. Output saved to `workspace/{filename}_spectrum.png`
+5. Optionally bin with `BinSpectrum` for visualization or as synthetic retrieval input
+
+### Binning a Spectrum
+
+1. Obtain a high-res spectrum (forward model `.npy` pair, or observed `.dat`)
+2. Call `BinSpectrum` with exactly one of `instrument`, `resolving_power`, or `n_bins`
+3. Do **not** pass `constant_error` unless the user explicitly requests a constant uncertainty
 
 ### Running a Retrieval
 

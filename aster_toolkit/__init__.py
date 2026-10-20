@@ -23,5 +23,6 @@ __all__ = [
     'FindExoplanetsByCondition',
     'BinSpectrum',
     'RunFastChemEquilibriumTool',
+    'BinSpectrum',
 ]
 

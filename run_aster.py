@@ -65,6 +65,9 @@ tools = [
 
     # Chemistry tools
     RunFastChemEquilibriumTool(base_directory=base_directory),
+
+    # Binning tools
+    BinSpectrum(base_directory=base_directory),
 ]
 
 # SkillCheckHook: ASTER tools are blocked until the agent has checked the skill files (SearchKnowledgeBase first, ReadFileTool on skills/ as fallback).

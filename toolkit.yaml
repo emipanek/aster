@@ -1,0 +1,50 @@
+name: aster
+version: 0.1.0
+description: Agentic Science Toolkit for Exoplanet Research
+author: Emilie
+license: MIT
+category: other
+python_version: '3.12'
+keywords: []
+
+config:
+  - name: base_directory
+    description: Absolute path to the ASTER workspace directory (outputs,
+      downloads, and generated files are written here).
+    type: path
+
+tools:
+  - module: aster_toolkit.chemistry.fastchem_tools
+    name: RunFastChemEquilibriumTool
+    description: Predict gas-phase chemical-equilibrium mixing ratios for a 
+      planetary atmosphere using FastChem.
+  - module: aster_toolkit.data_acquisition.exoarchive
+    name: DownloadDataset
+    description: Download transit spectra from NASA Exoplanet Archive and 
+      reformat them.
+  - module: aster_toolkit.data_acquisition.exoarchive
+    name: FindExoplanetsByCondition
+    description: Query the NASA Exoplanet Archive using the TAP (Table Access 
+      Protocol) service to retrieve exoplanets or planetary systems that satisfy
+      user-defined conditions.
+  - module: aster_toolkit.data_acquisition.exoarchive
+    name: GetExoplanetParameters
+    description: Get exoplanet parameters from NASA Exoplanet Archive via TAP 
+      service.
+  - module: aster_toolkit.taurex.corner_plot
+    name: PlotCornerPosteriors
+    description: Create a corner plot from TauREx retrieval posterior samples.
+  - module: aster_toolkit.taurex.parfile_tools
+    name: WriteTaurexParameterFile
+    description: Generate a TauREx CLI parameter (.par) file for a forward model
+      or retrieval job.
+  - module: aster_toolkit.taurex.retrieval
+    name: SimulateTaurexRetrieval
+    description: Run a TauREx atmospheric retrieval to fit model parameters to 
+      an observed transmission spectrum.
+  - module: aster_toolkit.taurex.set_paths
+    name: SetTaurexPaths
+    description: Set the paths for TauREx opacity and CIA files.
+  - module: aster_toolkit.taurex.forward_model
+    name: RunTaurexTransmissionModelTool
+    description: Run a TauREx forward model
