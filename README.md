@@ -21,7 +21,7 @@ ASTER can also be downloaded via toolbase, a package manager for AI agent tools 
 pip install toolbase        # provides the `tb` command
 git clone https://github.com/emipanek/aster.git
 cd ./aster
-tb install .
+tb install -e . -a
 ```
 
 ## Usage

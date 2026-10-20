@@ -30,6 +30,8 @@ import ast
 from orchestral.tools.base.tool import BaseTool
 from orchestral.tools.base.field_utils import RuntimeField, StateField
 
+from .citation import TAUREX_CITATION_NOTICE
+
 
 # Fixed typical mixing ratios, used as initial/seed values when the user names molecules to fit without giving exact starting abundances (so the agent isn't inventing numbers).
 DEFAULT_MOLECULE_ABUNDANCES = {
@@ -73,8 +75,11 @@ def resolve_free_gas_list(molecules=None, molecular_abundances=None):
 
 def default_fit_params_for_chemistry(chemistry_type, molecules=None, molecular_abundances=None):
     """Auto-generate a fit_params list from the chemistry configuration, when the user/agent doesn't supply fit_params explicitly."""
-    if chemistry_type == "equilibrium":
+    if chemistry_type in ("equilibrium", "fastchem"):
         return ["planet_radius", "T", "metallicity", "C_O_ratio"]
+    if chemistry_type == "file":
+        # Chemistry is fixed from the file: nothing to fit there.
+        return ["planet_radius", "T"]
     gas_list = resolve_free_gas_list(molecules, molecular_abundances)
     return ["planet_radius", "T"] + [name for name, _ in gas_list]
 
@@ -112,7 +117,11 @@ class SimulateTaurexRetrieval(BaseTool):
     **Chemistry configuration** same flexibility as the forward model tools:
     - `chemistry_type='free'` (default): fits molecule mixing ratios via `molecules` (names only, seeded from a fixed lookup table) or `molecular_abundances` (exact initial values), or the fixed basic 5-molecule set if neither is given.
     - `chemistry_type='equilibrium'`: fits metallicity and C/O ratio via ACEChemistry instead, only use this if the user explicitly asks for equilibrium/ACE chemistry.
-    - `fit_params`/`bounds` remain full override escape hatches, but are now optional - if not given, they're auto-generated from the chemistry configuration above.
+    - `chemistry_type='fastchem'`: fits metallicity and C/O ratio via FastChem instead of ACE (FastChem is rerun fresh at every nested-sampling iteration, so this is a genuine fit, not a fixed seed profile) `molecules` picks which species besides H2/He it solves for (defaults to the basic model set). Only use this if the user explicitly asks for FastChem chemistry.
+    - `chemistry_type='file'`: loads a fixed per-layer mixing-ratio profile from `chemistry_file_path`/`chemistry_file_gases` (e.g. from a GCM or photochemical model); chemistry itself is NOT fit, only `planet_radius`/`T` are by default. Only use this if the user explicitly provides/references such a file.
+    - `fit_params`/`bounds` remain full override escape hatches, but are now optional, if not given, they're auto-generated from the chemistry configuration above.
+
+    IMPORTANT: Every result from this tool MUST be cited as TauREx (Al-Refaie et al. 2021, ApJ, 917, 37, doi:10.3847/1538-4357/ac0252) the tool appends this citation requirement to its own output, always relay it to the user rather than dropping it.
     """
 
     # Required parameters
@@ -152,7 +161,7 @@ class SimulateTaurexRetrieval(BaseTool):
     )
     multinest_sampling_efficiency: str = RuntimeField(
         default="parameter",
-        description="Only used when optimizer='multinest'. MultiNest's 'sampling_efficiency': 'parameter' (default, tuned for accurate posteriors/parameter estimation). 'model' (tuned for accurate Bayesian evidence estimates instead of posteriors) is standard in the underlying pymultinest library and the value passes through unvalidated, but only 'parameter' is confirmed/type-hinted by TauREx's own wrapper. only try 'model' if the user specifically needs evidence-based model comparison, and verify the run behaves as expected."
+        description="Only used when optimizer='multinest'. MultiNest's 'sampling_efficiency': 'parameter' (default, tuned for accurate posteriors/parameter estimation). 'model' (tuned for accurate Bayesian evidence estimates instead of posteriors) is standard in the underlying pymultinest library and the value passes through unvalidated, but only 'parameter' is confirmed by TauREx. only try 'model' if the user specifically needs evidence-based model comparison, and verify the run behaves as expected."
     )
     multinest_constant_efficiency_mode: bool = RuntimeField(
         default=False,
@@ -200,23 +209,40 @@ class SimulateTaurexRetrieval(BaseTool):
     )
     molecules: list[str] | str = RuntimeField(
         default="",
-        description="List of molecule names to fit, e.g. ['H2O', 'CH4']. Each gets an initial/seed abundance from a fixed lookup table before fitting. use this when the user names specific molecules without giving exact starting values. Ignored if molecular_abundances is provided. Not used in 'equilibrium' chemistry_type. Leave as an empty string if not specifying molecules."
+        description="List of molecule names to fit, e.g. ['H2O', 'CH4']. Each gets an initial/seed abundance from a fixed lookup table before fitting. use this when the user names specific molecules without giving exact starting values. Ignored if molecular_abundances is provided. Not used in 'equilibrium'/'file' chemistry_type; in 'fastchem' it instead picks which species (besides H2/He) FastChem solves for, defaulting to the basic model set if not given. Leave as an empty string if not specifying molecules."
     )
     molecular_abundances: dict | str = RuntimeField(
         default="",
-        description="Dict of molecule name to initial/seed mixing ratio to fit, e.g. {'H2O': 0.02, 'CH4': 0.001}. Takes precedence over 'molecules'. If neither is given, fits the fixed basic set (H2O, CH4, CO2, CO, NH3). Not used in 'equilibrium' chemistry_type. Leave as an empty string if not specifying exact abundances."
+        description="Dict of molecule name to initial/seed mixing ratio to fit, e.g. {'H2O': 0.02, 'CH4': 0.001}. Takes precedence over 'molecules'. If neither is given, fits the fixed basic set (H2O, CH4, CO2, CO, NH3). Only used in 'free' chemistry_type. Leave as an empty string if not specifying exact abundances."
     )
     chemistry_type: str = RuntimeField(
         default="free",
-        description="'free' (default) fits molecule mixing ratios via 'molecules'/'molecular_abundances' (or the basic 5-molecule set if neither given). 'equilibrium' instead fits metallicity and C/O ratio via ACEChemistry thermochemical equilibrium, only set this if the user explicitly asks for equilibrium/ACE chemistry retrieval."
+        description=(
+            "'free' (default) fits molecule mixing ratios via 'molecules'/'molecular_abundances' (or the basic 5-molecule set if neither given). "
+            "'equilibrium' fits metallicity and C/O ratio via ACEChemistry thermochemical equilibrium, only set this if the user explicitly asks for equilibrium/ACE chemistry retrieval. "
+            "'fastchem' fits the same metallicity/C/O ratio but via FastChem instead of ACE (rerun fresh every nested-sampling iteration, a genuine fit) 'molecules' picks which species it solves for. Only set this if the user explicitly asks for FastChem chemistry retrieval. "
+            "'file' fixes the chemistry from 'chemistry_file_path'/'chemistry_file_gases' and does not fit composition at all (only planet_radius/T by default) only set this if the user explicitly provides/references such a file."
+        )
     )
     metallicity: float = RuntimeField(
         default=1.0,
-        description="Initial/seed metallicity relative to solar, before fitting. Only used when chemistry_type='equilibrium'."
+        description="Initial/seed metallicity relative to solar, before fitting. Only used when chemistry_type='equilibrium' or 'fastchem'."
     )
     co_ratio: float = RuntimeField(
         default=0.54,
-        description="Initial/seed carbon-to-oxygen ratio, before fitting. Only used when chemistry_type='equilibrium'. Solar value is ~0.54."
+        description="Initial/seed carbon-to-oxygen ratio, before fitting. Only used when chemistry_type='equilibrium' or 'fastchem'. Solar value is ~0.54."
+    )
+    element_abundance_source: str = RuntimeField(
+        default="asplund_2021",
+        description="Which solar composition reference FastChem starts from, before metallicity/co_ratio scaling. Only used when chemistry_type='fastchem'. One of 'asplund_2021' (default), 'asplund_2009', 'lodders_2003', 'lodders_2025'."
+    )
+    chemistry_file_path: str = RuntimeField(
+        default="",
+        description="Path to a text file of mixing ratios (whitespace-delimited, one row per atmospheric layer, matching 'nlayers', one column per gas). Only used when chemistry_type='file'. Leave as an empty string otherwise."
+    )
+    chemistry_file_gases: list[str] | str = RuntimeField(
+        default="",
+        description="Gas name for each column of chemistry_file_path, in file column order, e.g. ['H2', 'He', 'H2O', 'CH4']. Only used when chemistry_type='file'. Leave as an empty string otherwise."
     )
     output_basename: str = RuntimeField(
         default="retrieval_output",
@@ -338,8 +364,7 @@ class SimulateTaurexRetrieval(BaseTool):
         # Resolve observation path relative to base_directory
         full_observation_path = os.path.join(self.base_directory, self.observation_path)
 
-        # "" is this tool's not-given sentinel (RuntimeField can't reliably default to None),
-        # so it's treated the same as None below for fit_params/molecules/molecular_abundances/bounds.
+        # "" is this tool's not-given sentinel (RuntimeField can't reliably default to None),so it's treated the same as None below for fit_params/molecules/molecular_abundances/bounds.
 
         # Parse fit_params if it's a string
         if self.fit_params == "":
@@ -371,6 +396,16 @@ class SimulateTaurexRetrieval(BaseTool):
                 molecular_abundances = ast.literal_eval(molecular_abundances)
             except (ValueError, SyntaxError) as e:
                 raise ValueError(f"Failed to parse molecular_abundances string: {molecular_abundances}. Error: {e}")
+
+        # Parse chemistry_file_gases if it's a string
+        chemistry_file_gases = self.chemistry_file_gases
+        if chemistry_file_gases == "":
+            chemistry_file_gases = None
+        elif isinstance(chemistry_file_gases, str):
+            try:
+                chemistry_file_gases = ast.literal_eval(chemistry_file_gases)
+            except (ValueError, SyntaxError) as e:
+                raise ValueError(f"Failed to parse chemistry_file_gases string: {chemistry_file_gases}. Error: {e}")
 
         # Auto-generate fit_params from the chemistry configuration if not given
         if fit_params is None:
@@ -422,6 +457,9 @@ class SimulateTaurexRetrieval(BaseTool):
             chemistry_type=self.chemistry_type,
             metallicity=self.metallicity,
             co_ratio=self.co_ratio,
+            element_abundance_source=self.element_abundance_source,
+            chemistry_file_path=self.chemistry_file_path or None,
+            chemistry_file_gases=chemistry_file_gases,
             output_basename=self.output_basename,
             output_path=self.base_directory,  # Save outputs to base_directory
             stream_callback=stream_callback
@@ -440,6 +478,7 @@ class SimulateTaurexRetrieval(BaseTool):
             # Show relative path to the agent
             rel_path = os.path.relpath(path, self.base_directory)
             output += f"  - {key}: {rel_path}\n"
+        output += TAUREX_CITATION_NOTICE
 
         return output
 
@@ -449,7 +488,7 @@ def run_taurex_retrieval(
     fit_params,
     bounds=None,
     optimizer="nestle",
-    num_live_points=100, #keep the recommended value of 100 if nothing is specified by the user
+    num_live_points=100, #keep the value of 100 if nothing is specified by the user
     nestle_tol=0.5,
     nestle_method="multi",
     multinest_evidence_tolerance=0.5,
@@ -472,6 +511,9 @@ def run_taurex_retrieval(
     chemistry_type="free",
     metallicity=1.0,
     co_ratio=0.54,
+    element_abundance_source="asplund_2021",
+    chemistry_file_path=None,
+    chemistry_file_gases=None,
     output_basename="retrieval_output",
     output_path=None,
     stream_callback=None):
@@ -481,6 +523,8 @@ def run_taurex_retrieval(
     Chemistry configuration mirrors the forward model tools:
     - chemistry_type='free' (default) fits molecule mixing ratios, chosen by (in this order): molecular_abundances (exact initial values) > molecules (names only, seeded from a fixed lookup table) > the fixed basic 5-molecule set (H2O, CH4, CO2, CO, NH3) if neither is given.
     - chemistry_type='equilibrium' fits metallicity and C/O ratio via ACEChemistry instead, seeded from the metallicity/co_ratio arguments; molecules/molecular_abundances are ignored.
+    - chemistry_type='fastchem' also fits metallicity and C/O ratio, but via FastChem (rerun fresh every nested-sampling iteration via FastChemChemistry.initialize_chemistry) instead of ACE; molecules picks which species besides H2/He it solves for (defaults to the basic model set), molecular_abundances is ignored.
+    - chemistry_type='file' loads a fixed per-layer mixing-ratio profile from chemistry_file_path/chemistry_file_gases; composition is NOT fit (molecules/molecular_abundances/metallicity/co_ratio are ignored) only planet_radius/T are fit by default.
 
     observation_path : path to the observed spectrum file (e.g., 'path/to/test_data.dat'), the file should contain three or four columns: wavelength (microns), spectrum (transit depth or flux), vertical error on the transit depth (same units as spectrum), and width of the bins (optional).
     optimizer : 'multinest' if it's confirmed installed and working on this machine (faster, publication standard). Prefer 'nestle' if multinest not installed (pure Python, always works but slower). Only use 'ultranest' if the user explicitly asks for it.
@@ -548,13 +592,49 @@ def run_taurex_retrieval(
     if chemistry_type == "equilibrium":
         if molecules is not None or molecular_abundances is not None:
             raise ValueError(
-                "chemistry_type='equilibrium' ignores 'molecules'/'molecular_abundances'; "
-                "remove them or set chemistry_type='free' to fit molecule mixing ratios instead."
+                "chemistry_type='equilibrium' ignores 'molecules'/'molecular_abundances' remove them or set chemistry_type='free' to fit molecule mixing ratios instead."
             )
         stream(f"Setting up equilibrium chemistry (ACE), seed metallicity={metallicity}, C/O={co_ratio}...\n")
         from acepython.taurex3 import ACEChemistry
         # ACEChemistry's constructor takes ratio kwargs named '{Element}_ratio' (e.g. C_ratio for the default ratio_element='O'), it does NOT take a 'co_ratio' kwarg; that would be silently swallowed by its **kwargs and have no effect.
         chemistry = ACEChemistry(metallicity=metallicity, C_ratio=co_ratio)
+
+    elif chemistry_type == "fastchem":
+        if molecular_abundances is not None:
+            raise ValueError(
+                "chemistry_type='fastchem' ignores 'molecular_abundances' (FastChem computes abundances from equilibrium, it doesn't take fixed values); remove it, or use 'molecules' to pick which species to solve for, or set chemistry_type='free'."
+            )
+        resolved_molecules = molecules if molecules is not None else list(BASIC_MODEL_MOLECULES)
+        stream(f"Setting up FastChem equilibrium chemistry, seed metallicity={metallicity}, C/O={co_ratio}, species={resolved_molecules}...\n")
+        from .fastchem_chemistry import FastChemChemistry
+        chemistry = FastChemChemistry(
+            molecules=resolved_molecules,
+            metallicity=metallicity,
+            co_ratio=co_ratio,
+            element_abundance_source=element_abundance_source,
+        )
+
+    elif chemistry_type == "file":
+        if molecules is not None or molecular_abundances is not None:
+            raise ValueError(
+                "chemistry_type='file' ignores 'molecules'/'molecular_abundances' (the mixing profile comes entirely from the file); remove them, or set chemistry_type='free'to specify molecules directly."
+            )
+        if not chemistry_file_path or not chemistry_file_gases:
+            raise ValueError(
+                "chemistry_type='file' requires both chemistry_file_path (the text file to load) and chemistry_file_gases (the gas name for each column, in file order)."
+            )
+        stream(f"Loading fixed chemistry profile from {chemistry_file_path}...\n")
+        from taurex.data.profiles.chemistry.filechemistry import ChemistryFile
+        chemistry = ChemistryFile(gases=list(chemistry_file_gases), filename=chemistry_file_path)
+        n_gases, n_rows = chemistry.mixProfile.shape
+        if n_gases != len(chemistry_file_gases):
+            raise ValueError(
+                f"chemistry_file_gases has {len(chemistry_file_gases)} name(s) but {chemistry_file_path} has {n_gases} column(s)! these must match 1:1!"
+            )
+        if n_rows != nlayers:
+            raise ValueError(
+                f"{chemistry_file_path} has {n_rows} row(s), but nlayers={nlayers} the file must have exactly one row per atmospheric layer!"
+            )
 
     elif chemistry_type == "free":
         gas_list = resolve_free_gas_list(molecules, molecular_abundances)
@@ -564,7 +644,9 @@ def run_taurex_retrieval(
             chemistry.addGas(ConstantGas(molecule, mix_ratio=mix_ratio))
 
     else:
-        raise ValueError(f"Unknown chemistry_type: {chemistry_type!r}. Must be 'free' or 'equilibrium'.")
+        raise ValueError(
+            f"Unknown chemistry_type: {chemistry_type!r}. Must be 'free', 'equilibrium', 'fastchem', or 'file'."
+        )
 
     model = TransmissionModel(planet=planet,
                 temperature_profile=temperature_profile,

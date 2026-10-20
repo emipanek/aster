@@ -64,9 +64,7 @@ def process_wgets_file(base_directory, wgets_file_path: str, data_path: str) -> 
 
                 contents = response.text
                 # guess=False: the format is IPAC, and astropy's format
-                # guessing calls Path(contents).is_file() on the raw table text, which
-                # raises OSError('File name too long') on POSIX systems when the text
-                # contains '/' characters positioned such that a path segment exceeds
+                # guessing calls Path(contents).is_file() on the raw table text, which raises OSError('File name too long') on POSIX systems when the text contains '/' characters positioned such that a path segment exceeds
                 # NAME_MAX for rows with malformed reference URLs!!!
                 tbl = ascii.read(contents, format="ipac", guess=False)
                 df = tbl.to_pandas()      # type: ignore
@@ -190,6 +188,29 @@ def process_downloads(base_directory, data_path: str, output_dir: str) -> None:
 # NASA Exoplanet Archive TAP service URL
 TAP_SYNC_URL = "https://exoplanetarchive.ipac.caltech.edu/TAP/sync"
 
+# Identifier/metadata columns that have no "<column>_reflink" counterpart in the archive's TAP tables (pscomppars/ps), so they're excluded from reflink auto-append.
+NO_REFLINK_COLUMNS = {
+    "pl_name", "hostname", "pl_letter", "hd_name", "hip_name", "tic_id", "gaia_id", "disc_year", "discoverymethod", "disc_facility", "disc_telescope", "disc_instrument", "ra", "dec", "glat", "glon", "elat", "elon", "sy_snum", "sy_pnum", "sy_mnum", "default_flag", "pl_controv_flag", "rowupdate", "pl_pubdate", "releasedate", "st_spectype", "soltype",
+}
+
+
+def add_reflink_columns(columns: list[str]) -> list[str]:
+    """
+    Every physical parameter pulled from the NASA Exoplanet Archive (pl_radj, pl_eqt, st_teff, st_rad, ...) MUST be downloaded together with its '<column>_reflink' companion column, which cites the source paper for that specific value. The composite pscomppars table blends values for the same planet from many different papers, so without the reflink there is no way to attribute/cite the number later.
+
+    Given a list of requested column names, returns the list with each parameter's '_reflink' column appended (skipping columns that already are a reflink, already have their reflink present, or are identifier/metadata columns with no reflink, per NO_REFLINK_COLUMNS).
+    """
+    result = list(columns)
+    present = set(result)
+    for col in columns:
+        if col.endswith("_reflink") or col in NO_REFLINK_COLUMNS:
+            continue
+        reflink_col = f"{col}_reflink"
+        if reflink_col not in present:
+            result.append(reflink_col)
+            present.add(reflink_col)
+    return result
+
 
 def get_exoplanet_params_tap(planet_name: str, columns: list | str, table: str = "pscomppars") -> dict | None:
     """
@@ -253,6 +274,8 @@ def find_exoplanets_by_condition(conditions: list[str] | str, return_columns: li
 
     Returns:
     - List of dictionaries containing the requested columns for each matching row
+
+    Note: each requested physical parameter is downloaded together with its '<column>_reflink' companion column (citing the source paper for that value) via add_reflink_columns(), see that function's docstring for why this is required.
     """
     # Make sure conditions is a list
     if isinstance(conditions, str):
@@ -264,7 +287,8 @@ def find_exoplanets_by_condition(conditions: list[str] | str, return_columns: li
     top_clause = f"TOP {limit} " if limit is not None else ""
     if isinstance(return_columns, str):
         return_columns = [return_columns]
-    
+
+    return_columns = add_reflink_columns(return_columns)
     select_clause = ", ".join(return_columns)
 
     adql = (
@@ -447,11 +471,10 @@ class GetExoplanetParameters(BaseTool):
     Get exoplanet parameters from NASA Exoplanet Archive via TAP service.
 
     This tool allows programmatic access to exoplanet data from the NASA Exoplanet Archive.
-    Uses the "pscomppars" table by default, which provides composite parameters for confirmed
-    exoplanets combining data from multiple sources. Note that parameters may not be self-consistent
-    as they come from different sources.
+    Uses the "pscomppars" table by default, which provides composite parameters for confirmed exoplanets combining data from multiple sources. Note that parameters may not be self-consistent as they come from different sources.
 
-    IMPORTANT: Users should cite the archive's DOI if they use any datasets for research.
+    IMPORTANT: Users should cite the archive's DOI if they use any datasets for research. Because pscomppars blends each parameter from whichever source paper reported it, every requested parameter MUST be downloaded together with its own '<column>_reflink' column (e.g. pl_radj and pl_radj_reflink, pl_eqt and pl_eqt_reflink, st_teff and st_teff_reflink, st_rad and st_rad_reflink) so the specific source of that value can be cited. This tool does this automatically via add_reflink_columns(). Do not strip the '_reflink' columns from the output.
+    See skills/data_acquisition.md for details.
     """
 
     planet_name: str = RuntimeField(
@@ -486,9 +509,11 @@ class GetExoplanetParameters(BaseTool):
 
     def _run(self) -> str:
         """Query NASA Exoplanet Archive and return formatted results."""
+        # Every requested parameter must come back with its '_reflink' source column (see add_reflink_columns docstring) so the value can be attributed/cited
+        columns = add_reflink_columns(self.columns)
         result = get_exoplanet_params_tap(
             planet_name=self.planet_name,
-            columns=self.columns,
+            columns=columns,
             table=self.table
         )
 

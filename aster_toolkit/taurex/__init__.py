@@ -2,6 +2,7 @@ from .forward_model import RunTaurexTransmissionModelTool, RunTaurexEmissionMode
 from .set_paths import SetTaurexPaths
 from .parfile_tools import WriteTaurexParameterFile
 from .retrieval import SimulateTaurexRetrieval
+from .check_forward_model import CheckForwardModelRanTool
 
 __all__ = [
     'RunTaurexTransmissionModelTool',
@@ -9,4 +10,5 @@ __all__ = [
     'SetTaurexPaths',
     'SimulateTaurexRetrieval',
     'WriteTaurexParameterFile',
+    'CheckForwardModelRanTool',
 ]

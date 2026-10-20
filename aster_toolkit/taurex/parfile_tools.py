@@ -4,6 +4,8 @@ import ast
 from orchestral.tools.base.tool import BaseTool
 from orchestral.tools.base.field_utils import RuntimeField, StateField
 
+from .citation import TAUREX_CITATION_NOTICE
+
 
 # Fixed typical mixing ratios, used as seed values when the user names molecules without giving
 # exact abundances, and for the 'basic' fixed chemistry (so the agent isn't inventing numbers).
@@ -110,8 +112,7 @@ def _chemistry_section(chemistry_type, molecules, molecular_abundances, metallic
     if chemistry_type == "basic":
         if molecules is not None or molecular_abundances is not None:
             raise ValueError(
-                "chemistry_type='basic' uses the fixed default molecule set and ignores "
-                "'molecules'/'molecular_abundances'; set chemistry_type='free' to customize it."
+                "chemistry_type='basic' uses the fixed default molecule set and ignores 'molecules'/'molecular_abundances'; set chemistry_type='free' to customize it."
             )
         gas_list = [(m, DEFAULT_MOLECULE_ABUNDANCES[m]) for m in BASIC_MODEL_MOLECULES]
     elif chemistry_type == "free":
@@ -177,10 +178,7 @@ def generate_taurex_parfile(
     - 'equilibrium': ACE thermochemical equilibrium chemistry (acepython.taurex3.ACEChemistry,
       built into taurex/acepython - no extra plugin needed), seeded from metallicity/co_ratio.
 
-    If retrieval=True, an [Optimizer]/[Fitting] block is added (with observation_path required),
-    turning this into a retrieval job rather than a one-off forward model. If optimizer='multinest',
-    multinest_path/multinest_search_multi_modes/multinest_resume/multinest_importance_sampling are
-    also written into [Optimizer] (multinest_path is required in that case).
+    If retrieval=True, an [Optimizer]/[Fitting] block is added (with observation_path required), turning this into a retrieval job rather than a one-off forward model. If optimizer='multinest', multinest_path/multinest_search_multi_modes/multinest_resume/multinest_importance_sampling are also written into [Optimizer] (multinest_path is required in that case).
     """
     if retrieval and not observation_path:
         raise ValueError("retrieval=True requires observation_path (the spectrum to fit against).")
@@ -224,8 +222,7 @@ def generate_taurex_parfile(
             merged.update(bounds)
             bounds = merged
 
-        # Retrieval jobs written via this tool run on a cluster, which has far more compute
-        # available than an in-session local retrieval - enforce a higher live-point floor.
+        # Retrieval jobs written via this tool run on a cluster, which has far more compute available than an in-session local retrieval - enforce a higher live-point floor.
         if num_live_points < MIN_CLUSTER_LIVE_POINTS:
             num_live_points = MIN_CLUSTER_LIVE_POINTS
 
@@ -233,8 +230,7 @@ def generate_taurex_parfile(
         if optimizer == "multinest":
             if not multinest_path:
                 raise ValueError(
-                    "optimizer='multinest' requires multinest_path (MultiNest's own working-file "
-                    "directory ON THE CLUSTER) - either pass it explicitly or set CLUSTER_MULTINEST_PATH in .env."
+                    "optimizer='multinest' requires multinest_path (MultiNest's own working-file directory ON THE CLUSTER) either pass it explicitly or set CLUSTER_MULTINEST_PATH in .env."
                 )
             optimizer_lines += [
                 f"multi_nest_path = {multinest_path}",
@@ -262,16 +258,14 @@ class WriteTaurexParameterFile(BaseTool):
     """
     Generate a TauREx CLI parameter (.par) file for a forward model or retrieval job.
 
-    Use this instead of the Python-based TauREx tools when the user wants to launch the job
-    on a cluster rather than run it locally in this session. The real CLI invocation (verified
-    against the installed taurex package's argparse) is:
+    Use this instead of the Python-based TauREx tools when the user wants to launch the job on a cluster rather than run it locally in this session. The real CLI invocation (verified against the installed taurex package's argparse) is:
 
         taurex -i model.par -o output.h5 --retrieval
 
     (`-i`/`--input`, `-o`/`--output_file`, `-R`/`--retrieval` - omit `--retrieval` for a forward
-    model run instead of a fit). Read skills/cluster_setup.md for the full recipe chaining this
-    with WriteSlurmScript/SubmitSlurmJob, including the flat-remote-directory gotcha for
-    `observation_path`.
+    model run instead of a fit). Read skills/cluster_setup.md for the full recipe chaining this with WriteSlurmScript/SubmitSlurmJob, including the flat-remote-directory gotcha for `observation_path`.
+
+    IMPORTANT: Any result eventually produced by running this .par file MUST be cited as TauREx (Al-Refaie et al. 2021, ApJ, 917, 37, doi:10.3847/1538-4357/ac0252) the tool appends this citation requirement to its own output, always relay it to the user rather than dropping it.
     """
 
     xsec_path: str = RuntimeField(
@@ -280,12 +274,12 @@ class WriteTaurexParameterFile(BaseTool):
     )
     cia_path: str = RuntimeField(
         default="",
-        description="Absolute path to CIA files ON THE MACHINE THAT WILL RUN THIS FILE (e.g. the cluster). Leave this as an empty string (do NOT guess or reuse this session's local SetTaurexPaths value) - it defaults to CLUSTER_CIA_PATH from the environment, which is always the correct cluster-side path. Only pass this explicitly if the user gives you a different path themselves."
+        description="Absolute path to CIA files ON THE MACHINE THAT WILL RUN THIS FILE (e.g. the cluster). Leave this as an empty string (do NOT guess or reuse this session's local SetTaurexPaths value) it defaults to CLUSTER_CIA_PATH from the environment, which is always the correct cluster-side path. Only pass this explicitly if the user gives you a different path themselves."
     )
     model_type: str = RuntimeField(default="transmission", description="'transmission' or 'emission'.")
     chemistry_type: str = RuntimeField(
         default="basic",
-        description="'basic' (fixed default 5-molecule set), 'free' (custom molecules/molecular_abundances), or 'equilibrium' (ACE thermochemical equilibrium chemistry via metallicity/co_ratio - built into taurex/acepython, no extra plugin needed)."
+        description="'basic' (fixed default 5-molecule set), 'free' (custom molecules/molecular_abundances), or 'equilibrium' (ACE thermochemical equilibrium chemistry via metallicity/co_ratio built into taurex/acepython, no extra plugin needed)."
     )
     molecules: list[str] | str = RuntimeField(
         default="",
@@ -315,28 +309,25 @@ class WriteTaurexParameterFile(BaseTool):
     )
     fit_params: list | str = RuntimeField(
         default="",
-        description="List of parameters to fit. Only used if retrieval=True. Optional - if left as an empty string, auto-generated from the chemistry configuration."
+        description="List of parameters to fit. Only used if retrieval=True. Optional, if left as an empty string, auto-generated from the chemistry configuration."
     )
     bounds: dict | str = RuntimeField(
         default="",
-        description="Dict of {param: [low, high]} bounds. Only used if retrieval=True. Optional - if left as an empty string, auto-generated."
+        description="Dict of {param: [low, high]} bounds. Only used if retrieval=True. Optional, if left as an empty string, auto-generated."
     )
     optimizer: str = RuntimeField(
         default="nestle",
-        description="Optimizer for retrieval jobs: 'nestle', 'multinest', or 'polychord'. Prefer 'multinest' if pymultinest is confirmed installed and working on the machine that will run this .par file (faster, publication standard) - otherwise 'nestle' (this default, always works)."
+        description="Optimizer for retrieval jobs: 'nestle', 'multinest', or 'polychord'. Prefer 'multinest' if pymultinest is confirmed installed and working on the machine that will run this .par file (faster, publication standard) otherwise 'nestle' (this default, always works)."
     )
     num_live_points: int = RuntimeField(
         default=RECOMMENDED_CLUSTER_LIVE_POINTS,
         description=(
-            "Number of live points for nested sampling (retrieval jobs only). Since jobs written "
-            f"via this tool run on a cluster (not locally), the minimum enforced here is "
-            f"{MIN_CLUSTER_LIVE_POINTS} - {RECOMMENDED_CLUSTER_LIVE_POINTS} is recommended for "
-            "production-quality results. Values below the minimum are silently raised to it."
+            "Number of live points for nested sampling (retrieval jobs only). Since jobs written via this tool run on a cluster (not locally), the minimum enforced here is {MIN_CLUSTER_LIVE_POINTS} - {RECOMMENDED_CLUSTER_LIVE_POINTS} is recommended for production-quality results. Values below the minimum are silently raised to it."
         ),
     )
     multinest_path: str = RuntimeField(
         default="",
-        description="Absolute path ON THE CLUSTER for MultiNest's own working files (the 'multi_nest_path' config key) - REQUIRED when optimizer='multinest', ignored otherwise. Leave as an empty string to default to CLUSTER_MULTINEST_PATH from the environment; do not guess a path."
+        description="Absolute path ON THE CLUSTER for MultiNest's own working files (the 'multi_nest_path' config key) REQUIRED when optimizer='multinest', ignored otherwise. Leave as an empty string to default to CLUSTER_MULTINEST_PATH from the environment; do not guess a path."
     )
     multinest_search_multi_modes: bool = RuntimeField(default=True, description="MultiNest's search_multi_modes option. Only used when optimizer='multinest'.")
     multinest_resume: bool = RuntimeField(default=False, description="MultiNest's resume option (resume from a previous incomplete run's checkpoint at multinest_path). Only used when optimizer='multinest'.")
@@ -346,8 +337,7 @@ class WriteTaurexParameterFile(BaseTool):
 
     def _run(self):
         def _parse(value):
-            # "" is this tool's not-given sentinel (RuntimeField can't reliably default to None -
-            # see other ASTER cluster tools for the same convention), so treat it as None here.
+            # "" is this tool's not-given sentinel (RuntimeField can't reliably default to None see other ASTER cluster tools for the same convention), so treat it as None here.
             if value == "":
                 return None
             if isinstance(value, str):
@@ -361,13 +351,11 @@ class WriteTaurexParameterFile(BaseTool):
         cia_path = self.cia_path or os.environ.get('CLUSTER_CIA_PATH')
         if not xsec_path or not cia_path:
             raise ValueError(
-                "xsec_path/cia_path not given and CLUSTER_XSEC_PATH/CLUSTER_CIA_PATH are not "
-                "both set in .env. Ask the user for the absolute opacity/CIA paths on the "
-                "machine that will run this .par file."
+                "xsec_path/cia_path not given and CLUSTER_XSEC_PATH/CLUSTER_CIA_PATH are not both set in .env. Ask the user for the absolute opacity/CIA paths on the machine that will run this .par file."
             )
         multinest_path = self.multinest_path or os.environ.get('CLUSTER_MULTINEST_PATH')
 
-        return generate_taurex_parfile(
+        result = generate_taurex_parfile(
             xsec_path=xsec_path,
             cia_path=cia_path,
             model_type=self.model_type,
@@ -397,3 +385,4 @@ class WriteTaurexParameterFile(BaseTool):
             filename=self.filename,
             base_directory=self.base_directory,
         )
+        return result + TAUREX_CITATION_NOTICE

@@ -15,6 +15,7 @@ from orchestral.tools import (
     DisplayImageTool
 )
 from orchestral.tools.hooks import DangerousCommandHook
+from aster_toolkit.knowledge.skill_check_hook import SkillCheckHook
 from orchestral.prompts import RICH_UI_SYSTEM_PROMPT
 # from orchestral.llm import Claude
 from orchestral.llm import GPT
@@ -29,6 +30,7 @@ from aster_toolkit import (
     DownloadDataset,
     FindExoplanetsByCondition,
     RunFastChemEquilibriumTool,
+    BinSpectrum,
 )
 
 base_directory = 'workspace'
@@ -58,11 +60,15 @@ tools = [
     DownloadDataset(base_directory=base_directory),
     FindExoplanetsByCondition(base_directory=base_directory),
 
+    # Binning tool
+    BinSpectrum(base_directory=base_directory),
+
     # Chemistry tools
     RunFastChemEquilibriumTool(base_directory=base_directory),
 ]
 
-hooks = [DangerousCommandHook()]
+# SkillCheckHook: ASTER tools are blocked until the agent has checked the skill files (SearchKnowledgeBase first, ReadFileTool on skills/ as fallback).
+hooks = [DangerousCommandHook(), SkillCheckHook(tools)]
 
 # Load ASTER system prompt
 with open('aster_system_prompt.md', 'r') as f:

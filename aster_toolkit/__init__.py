@@ -8,7 +8,9 @@ from .taurex.set_paths import SetTaurexPaths
 from .taurex.retrieval import SimulateTaurexRetrieval
 from .taurex.parfile_tools import WriteTaurexParameterFile
 from .data_acquisition.exoarchive import GetExoplanetParameters, DownloadDataset, FindExoplanetsByCondition
+
 from .chemistry.fastchem_tools import RunFastChemEquilibriumTool
+from .binning_tool.bin_spectrum_tool import BinSpectrum
 
 __all__ = [
     'RunTaurexTransmissionModelTool',
@@ -19,23 +21,7 @@ __all__ = [
     'GetExoplanetParameters',
     'DownloadDataset',
     'FindExoplanetsByCondition',
+    'BinSpectrum',
     'RunFastChemEquilibriumTool',
 ]
 
-# from .taurex_tools import (
-#     SimulateTaurexSpectrum,
-#     SimulateTaurexRetrieval,
-#     CheckTaurexOpacityCiaPaths,
-#     PlotCornerPosteriors,
-# )
-# from .exoplanet_tools import GetExoplanetParameters
-# from .data_tools import DownloadDataset
-
-# __all__ = [
-#     "SimulateTaurexSpectrum",
-#     "SimulateTaurexRetrieval",
-#     "CheckTaurexOpacityCiaPaths",
-#     "PlotCornerPosteriors",
-#     "GetExoplanetParameters",
-#     "DownloadDataset",
-# ]

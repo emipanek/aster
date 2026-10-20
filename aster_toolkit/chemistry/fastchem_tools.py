@@ -17,9 +17,7 @@ VALID_ELEMENT_ABUNDANCE_SOURCES = ['asplund_2021', 'asplund_2009', 'lodders_2003
 def _fastchem_input_dir() -> Path:
     """
     Locate the fastchem_input/ directory shipped at the project root, next to workspace/.
-    Computed relative to this file's own location (not base_directory/pwd) since this data
-    is bundled with the project rather than downloaded per-machine like TauREx's line lists,
-    so there's no need for the agent to locate or supply paths itself.
+    Computed relative to this file's own location (not base_directory/pwd) since this data is bundled with the project rather than downloaded per-machine like TauREx's line lists, so there's no need for the agent to locate or supply paths itself.
     """
     input_dir = Path(__file__).resolve().parent.parent.parent / 'fastchem_input'
     if not input_dir.is_dir():
@@ -51,17 +49,14 @@ def _normalize_profile(temperature, pressure):
         p_list = p_list * len(t_list)
     elif len(t_list) != len(p_list):
         raise ValueError(
-            f"temperature ({len(t_list)} value(s)) and pressure ({len(p_list)} value(s)) must be the "
-            "same length, or one of them must be a single value."
+            f"temperature ({len(t_list)} value(s)) and pressure ({len(p_list)} value(s)) must be the " "same length, or one of them must be a single value."
         )
 
     return t_list, p_list
 
 
 def _apply_element_abundances(fastchem, metallicity, co_ratio, custom_element_abundances):
-    """Scale the default (solar) element abundances by metallicity/C-O ratio, matching the
-    approach in FastChem's own example scripts (direct multiplication of the abundance array,
-    not a log-space operation)."""
+    """Scale the default (solar) element abundances by metallicity/C-O ratio (direct multiplication of the abundance array, not a log-space operation)"""
     import pyfastchem
 
     abundances = np.array(fastchem.getElementAbundances())
@@ -95,10 +90,7 @@ class RunFastChemEquilibriumTool(BaseTool):
     """
     Predict gas-phase chemical-equilibrium mixing ratios for a planetary atmosphere using FastChem.
 
-    Independent of the TauREx tools, this only needs a temperature (and optionally pressure),
-    not a full planet/star/opacity setup. Use this when the user asks something like
-    "what molecules would I expect at equilibrium for a planet at 1500 K" no line lists or
-    SetTaurexPaths required.
+    Independent of the TauREx tools, this only needs a temperature (and optionally pressure), not a full planet/star/opacity setup. Use this when the user asks something like "what molecules would I expect at equilibrium for a planet at 1500 K" no line lists or SetTaurexPaths required.
     """
 
     temperature: float | list[float] | str = RuntimeField(
@@ -122,11 +114,11 @@ class RunFastChemEquilibriumTool(BaseTool):
     )
     include_condensates: bool = RuntimeField(
         default=False,
-        description="Whether to also account for condensation (rainout) chemistry. Only set this if the user explicitly asks about clouds/condensates - adds significant complexity and is off by default."
+        description="Whether to also account for condensation chemistry. Only set this if the user explicitly asks about clouds/condensates cause it adds significant complexity and is off by default."
     )
     species: list[str] | str | None = RuntimeField(
         default=None,
-        description="Specific molecule/species names to report mixing ratios for, e.g. ['H2O', 'CH4']. If not given, uses top_n if provided, otherwise a fixed default set of commonly-relevant species (so results are deterministic instead of the agent inventing which species to report)."
+        description="Specific molecule/species names to report mixing ratios for, e.g. ['H2O', 'CH4']. If not given, uses top_n if provided, otherwise a fixed default set of commonly-relevant species."
     )
     top_n: int | None = RuntimeField(
         default=None,
@@ -176,8 +168,7 @@ def generate_fastchem_equilibrium(
     Run a FastChem gas-phase chemical-equilibrium calculation and report mixing ratios.
 
     For a single (temperature, pressure) point, returns a formatted text summary.
-    For a profile (list-valued temperature and/or pressure), also saves a mixing-ratio-vs-pressure
-    plot and the underlying arrays, since a full profile isn't meaningfully readable as text.
+    For a profile (list-valued temperature and/or pressure), also saves a mixing-ratio-vs-pressure plot and the underlying arrays.
     Please redirect to https://newstrangeworlds.github.io/FastChem/ if an error occurs.
     """
     import pyfastchem
@@ -243,8 +234,7 @@ def generate_fastchem_equilibrium(
     elif top_n:
         max_mix = mixing_ratios.max(axis=0)
         top_indices = [int(i) for i in np.argsort(max_mix)[::-1][:top_n]]
-        # Already have indices from ranking - pair symbol with the descriptive name for
-        # readability (raw Hill-notation symbols alone, e.g. "H2O1", read poorly).
+        # Already have indices from ranking pair symbol with the descriptive name for readability (raw Hill-notation symbols alone e.g. "H2O1" read poorly)
         resolved = [
             (f"{fastchem.getGasSpeciesSymbol(i)} ({fastchem.getGasSpeciesName(i)})", i)
             for i in top_indices
@@ -267,7 +257,7 @@ def generate_fastchem_equilibrium(
             lines.append(f"Not found in FastChem's species list: {', '.join(not_found)}")
         return "\n".join(lines)
 
-    # Profile case: save a plot + the raw arrays, since a list of points isn't readable as text
+    # Profile case: save a plot + the raw arrays
     import matplotlib
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt

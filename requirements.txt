@@ -16,4 +16,5 @@ plotly
 pyfastchem
 fastapi
 rich
-'uvicorn[standard]'
+uvicorn
+spectres
