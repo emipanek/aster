@@ -42,6 +42,19 @@ from aster_toolkit import (
 base_directory = 'workspace'
 os.makedirs(base_directory, exist_ok=True)
 
+# Excalibur runs in its own Python 3.12 env (set EXCALIBUR_PYTHON, DATA_BASEDIR and EXCALIBUR_ESP_DIR in .env)
+excalibur_state = dict(
+    excalibur_python=os.getenv('EXCALIBUR_PYTHON', ''),
+    excalibur_data_dir=os.getenv('DATA_BASEDIR', ''),
+    excalibur_esp_directory=os.getenv('EXCALIBUR_ESP_DIR', ''),
+)
+# LETHE light curves: optional overrides of the Excalibur settings above
+lethe_state = dict(
+    lethe_python=os.getenv('LETHE_PYTHON', ''),
+    lethe_esp_directory=os.getenv('LETHE_ESP_DIR', ''),
+    lethe_directory=os.getenv('LETHE_DIR', ''),
+)
+
 tools = [
     # File and command tools
     RunCommandTool(base_directory=base_directory, persistent=True),
