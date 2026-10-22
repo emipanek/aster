@@ -5,46 +5,100 @@ author: Emilie
 license: MIT
 category: other
 python_version: '3.12'
-keywords: []
+keywords: [exoplanets, taurex, atmospheric-retrieval, excalibur, jwst]
 
 config:
   - name: base_directory
     description: Absolute path to the ASTER workspace directory (outputs,
-      downloads, and generated files are written here).
+      downloads, and generated files are written here). Required by essentially every tool in every bundle.
     type: path
+    required: true
+    default: ${CWD}
+
+  - name: excalibur_python
+    description:  Python executable of the environment where Excalibur runs (Python 3.12, numpy >= 2, recent dawgie), e.g. /opt/anaconda3/envs/lethe/bin/python.
+      (EXCALIBUR_PYTHON)
+    type: path
+    required: false
+  - name: excalibur_data_dir
+    description: Excalibur DATA_BASEDIR must directly contain CERBERUS/, ariel/and pickles/ (and, by default, LETHE/ and ldtk/). (DATA_BASEDIR)
+    type: path
+    required: false
+  - name: excalibur_esp_directory
+    description: esp checkout to use instead of the installed Excalibur (needs an excalibur subfolder) needed for the newer TEA-grid/ATOM_XSEC chemistry.Leave empty to use the installed one. (EXCALIBUR_ESP_DIR)
+    type: path
+    required: false
+  - name: lethe_python
+    description: Python executable for LETHE light curves specifically (needs numpy >= 2, uses np.acos). Leave empty to fall back to excalibur_python. (LETHE_PYTHON)
+    type: path
+    required: false
+  - name: lethe_esp_directory
+    description: esp checkout whose Excalibur includes the LETHE light-curve model. Leave empty to fall back to excalibur_esp_directory. (LETHE_ESP_DIR)
+    type: path
+    required: false
+  - name: lethe_directory
+    description: LETHE grid folder (parameters/z_grid.npy, parameters/rprs_grid.npy, grid_F/, grid_G/). Leave empty to fall back to <excalibur_data_dir>/LETHE.
+      (LETHE_DIR)
+    type: path
+    required: false
+
+bundles:
+  binning_tool:
+    deps: [numpy, spectres]
+  chemistry:
+    deps: [pyfastchem]
+  data_acquisition:
+    deps: [requests, pandas, astropy]
+  taurex:
+    deps: [taurex, corner, matplotlib, numpy, pandas, pymultinest, taurex_ultranest, astropy]
+  excalibur:
+    requires: [excalibur_python, excalibur_data_dir, excalibur_esp_directory]
+    deps: []
+
 
 tools:
   - module: aster_toolkit.chemistry.fastchem_tools
     name: RunFastChemEquilibriumTool
-    description: Predict gas-phase chemical-equilibrium mixing ratios for a 
-      planetary atmosphere using FastChem.
+    description: Predict gas-phase chemical-equilibrium mixing ratios for a planetary atmosphere using FastChem.
+    bundle: chemistry
   - module: aster_toolkit.data_acquisition.exoarchive
     name: DownloadDataset
-    description: Download transit spectra from NASA Exoplanet Archive and 
-      reformat them.
+    description: Download transit spectra from NASA Exoplanet Archive and reformat them.
+    bundle: data_acquisition
   - module: aster_toolkit.data_acquisition.exoarchive
     name: FindExoplanetsByCondition
-    description: Query the NASA Exoplanet Archive using the TAP (Table Access 
-      Protocol) service to retrieve exoplanets or planetary systems that satisfy
-      user-defined conditions.
+    description: Query the NASA Exoplanet Archive using the TAP (Table Access Protocol) service to retrieve exoplanets or planetary systems that satisfy user-defined conditions.
+    bundle: data_acquisition
   - module: aster_toolkit.data_acquisition.exoarchive
     name: GetExoplanetParameters
-    description: Get exoplanet parameters from NASA Exoplanet Archive via TAP 
-      service.
+    description: Get exoplanet parameters from NASA Exoplanet Archive via TAP service.
+    bundle: data_acquisition
   - module: aster_toolkit.taurex.corner_plot
     name: PlotCornerPosteriors
     description: Create a corner plot from TauREx retrieval posterior samples.
+    bundle: taurex
   - module: aster_toolkit.taurex.parfile_tools
     name: WriteTaurexParameterFile
-    description: Generate a TauREx CLI parameter (.par) file for a forward model
-      or retrieval job.
+    description: Generate a TauREx CLI parameter (.par) file for a forward model or retrieval job.
+    bundle: taurex
   - module: aster_toolkit.taurex.retrieval
     name: SimulateTaurexRetrieval
-    description: Run a TauREx atmospheric retrieval to fit model parameters to 
-      an observed transmission spectrum.
+    description: Run a TauREx atmospheric retrieval to fit model parameters to an observed transmission spectrum.
+    bundle: taurex
   - module: aster_toolkit.taurex.set_paths
     name: SetTaurexPaths
     description: Set the paths for TauREx opacity and CIA files.
+    bundle: taurex
   - module: aster_toolkit.taurex.forward_model
     name: RunTaurexTransmissionModelTool
-    description: Run a TauREx forward model
+    description: Run a TauREx forward model for transmission spectroscopy 
+    bundle: taurex
+  - module: aster_toolkit.taurex.forward_model
+    name: RunTaurexEmissionModelTool
+    description: Run a TauREx forward model for emission spectroscopy
+    bundle: taurex
+  - module: aster_toolkit.taurex.check_forward_model
+    name: CheckTaurexForwardModelTool
+    description: Check wether a TauREx forward model has already been run for a given name.
+    bundle: taurex
+
