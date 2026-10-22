@@ -67,12 +67,12 @@ tools = [
     FindExoplanetsByCondition(base_directory=base_directory),
 
     # Excalibur tools
-    FindExcaliburTarget(base_directory=base_directory),
-    CalculateExcaliburCrossSections(base_directory=base_directory),
-    RunCerberusEquilibriumModel(base_directory=base_directory),
-    RunCerberusFreeChemistryModel(base_directory=base_directory),
-    SimulateArielObservation(base_directory=base_directory),
-    ComputeLetheLightCurve(base_directory=base_directory),
+    FindExcaliburTarget(**excalibur_state),
+    CalculateExcaliburCrossSections(base_directory=base_directory, **excalibur_state),
+    RunCerberusEquilibriumModel(base_directory=base_directory, **excalibur_state),
+    RunCerberusFreeChemistryModel(base_directory=base_directory, **excalibur_state),
+    SimulateArielObservation(base_directory=base_directory, **excalibur_state),
+    ComputeLetheLightCurve(base_directory=base_directory, **excalibur_state, **lethe_state),
 
     # Chemistry tools
     RunFastChemEquilibriumTool(base_directory=base_directory),
