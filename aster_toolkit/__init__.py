@@ -8,7 +8,7 @@ from .taurex.set_paths import SetTaurexPaths
 from .taurex.retrieval import SimulateTaurexRetrieval
 from .taurex.parfile_tools import WriteTaurexParameterFile
 from .data_acquisition.exoarchive import GetExoplanetParameters, DownloadDataset, FindExoplanetsByCondition
-
+from .excalibur.excalibur_tools import FindExcaliburTarget, CalculateExcaliburCrossSections, RunCerberusEquilibriumModel, RunCerberusFreeChemistryModel, SimulateArielObservation, ComputeLetheLightCurve
 from .chemistry.fastchem_tools import RunFastChemEquilibriumTool
 from .binning_tool.bin_spectrum_tool import BinSpectrum
 
@@ -22,6 +22,12 @@ __all__ = [
     'DownloadDataset',
     'FindExoplanetsByCondition',
     'BinSpectrum',
+    'FindExcaliburTarget',
+    'CalculateExcaliburCrossSections',
+    'RunCerberusEquilibriumModel',
+    'RunCerberusFreeChemistryModel',
+    'SimulateArielObservation',
+    'ComputeLetheLightCurve',
     'RunFastChemEquilibriumTool',
     'BinSpectrum',
 ]

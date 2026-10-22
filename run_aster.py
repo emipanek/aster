@@ -29,6 +29,12 @@ from aster_toolkit import (
     GetExoplanetParameters,
     DownloadDataset,
     FindExoplanetsByCondition,
+    FindExcaliburTarget,
+    CalculateExcaliburCrossSections,
+    RunCerberusEquilibriumModel,
+    RunCerberusFreeChemistryModel,
+    SimulateArielObservation,
+    ComputeLetheLightCurve,
     RunFastChemEquilibriumTool,
     BinSpectrum,
 )
@@ -60,8 +66,13 @@ tools = [
     DownloadDataset(base_directory=base_directory),
     FindExoplanetsByCondition(base_directory=base_directory),
 
-    # Binning tool
-    BinSpectrum(base_directory=base_directory),
+    # Excalibur tools
+    FindExcaliburTarget(base_directory=base_directory),
+    CalculateExcaliburCrossSections(base_directory=base_directory),
+    RunCerberusEquilibriumModel(base_directory=base_directory),
+    RunCerberusFreeChemistryModel(base_directory=base_directory),
+    SimulateArielObservation(base_directory=base_directory),
+    ComputeLetheLightCurve(base_directory=base_directory),
 
     # Chemistry tools
     RunFastChemEquilibriumTool(base_directory=base_directory),
