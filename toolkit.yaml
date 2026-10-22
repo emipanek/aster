@@ -1,5 +1,5 @@
 name: aster
-version: 0.1.0
+version: 0.2.0
 description: Agentic Science Toolkit for Exoplanet Research
 author: Emilie
 license: MIT
@@ -98,7 +98,31 @@ tools:
     description: Run a TauREx forward model for emission spectroscopy
     bundle: taurex
   - module: aster_toolkit.taurex.check_forward_model
-    name: CheckTaurexForwardModelTool
+    name: CheckForwardModelRanTool
     description: Check wether a TauREx forward model has already been run for a given name.
     bundle: taurex
+  - module: aster_toolkit.excalibur.excalibur_tools
+    name: FindExcaliburTarget
+    description: Check whether a planet is in the Excalibur target list (~2000 systems) and return its parameters, units, references, Rp/R*, and Arielnoise availability/tiers.
+    bundle: excalibur
+  - module: aster_toolkit.excalibur.excalibur_tools
+    name: CalculateExcaliburCrossSections
+    description: Compute the Cerberus molecular + CIA cross-section library on a wavelength grid (cached by name; ~2.5 min to build).
+    bundle: excalibur
+  - module: aster_toolkit.excalibur.excalibur_tools
+    name: RunCerberusEquilibriumModel
+    description: Run a Cerberus transmission forward model with thermochemical-equilibrium chemistry (TEA grid or TEC analytic) and save the spectrum.
+    bundle: excalibur
+  - module: aster_toolkit.excalibur.excalibur_tools
+    name: RunCerberusFreeChemistryModel
+    description: Run a Cerberus transmission forward model with free chemistry(constant-with-altitude abundances you choose) and save the spectrum.
+    bundle: excalibur
+  - module: aster_toolkit.excalibur.excalibur_tools
+    name: SimulateArielObservation
+    description: Simulate an Ariel observation of a Cerberus forward model(ArielRad noise added, binned to Ariel channels, standard comparison plot).
+    bundle: excalibur
+  - module: aster_toolkit.excalibur.excalibur_tools
+    name: ComputeLetheLightCurve
+    description: Compute a transit light curve with Excalibur's LETHE model(grid-interpolated occulted flux, 8-coefficient limb darkening).
+    bundle: excalibur
 
